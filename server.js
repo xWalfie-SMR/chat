@@ -11,6 +11,9 @@ const PORT = process.env.PORT || 8080;
 const clients = new Map();
 
 app.use(express.static("public"));
+app.get("/healthz", (req, res) => {
+  res.status(200).send("OK");
+});
 
 wss.on("connection", (ws) => {
   ws.send(JSON.stringify({ type: "prompt", msg: "Enter username:" }));
