@@ -42,7 +42,7 @@ wss.on("connection", (ws) => {
 
             // --- Handle username setup ---
             if (data.type === "username") {
-                let { msg: requestedName, deviceId } = data;
+                let { msg: requestedName, deviceId, oldUsername } = data;
                 requestedName = (requestedName || "anon").trim();
 
                 // Check for device reuse
@@ -68,8 +68,8 @@ wss.on("connection", (ws) => {
                         console.error("Error closing old connection:", e);
                     }
                     
-                    // Notify other users about the disconnection
-                    if (oldName) {
+                    // Notify other users about the disconnection (only if not a username change)
+                    if (oldName && !oldUsername) {
                         broadcast(`[${oldName}] ha salido del chat.`, Date.now());
                     }
                 }
@@ -103,7 +103,12 @@ wss.on("connection", (ws) => {
                     }));
                 }
                 
-                broadcast(`[${finalName}] se ha unido al chat.`, Date.now());
+                // Broadcast appropriate message based on whether this is a username change
+                if (oldUsername) {
+                    broadcast(`[${oldUsername}] ahora es conocido como [${finalName}].`, Date.now());
+                } else {
+                    broadcast(`[${finalName}] se ha unido al chat.`, Date.now());
+                }
                 return;
             }
 
