@@ -6,6 +6,8 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+const PORT = process.env.PORT || 8080;
+
 const clients = new Map();
 
 app.use(express.static("public"));
@@ -41,4 +43,4 @@ function broadcast(msg) {
   }
 }
 
-server.listen(8080, () => console.log("Server running on http://localhost:8080"));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

@@ -3,7 +3,7 @@ const readline = require("readline");
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-const ws = new WebSocket("ws://localhost:8080");
+const ws = new WebSocket("wss://chat-cp1p.onrender.com");
 
 let username = "";
 
