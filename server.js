@@ -28,7 +28,7 @@ wss.on("connection", (ws) => {
             } else if (data.type === "chat") {
                 const username = clients.get(ws) || "anon";
 
-                if (typeof data.msg === "string" && data.msg.startsWith("/admin ")) {
+                if (typeof data.msg === "string" && data.msg.startsWith("/kick ")) {
                     const parts = data.msg.split(/\s+/);
                     const targetName = parts[1];
                     const pwd = parts[2];
@@ -37,7 +37,7 @@ wss.on("connection", (ws) => {
                         ws.send(
                             JSON.stringify({
                                 type: "chat",
-                                msg: "Usage: /admin <username> <password>",
+                                msg: "Usage: /kick <username> <password>",
                             })
                         );
                         return;
@@ -80,8 +80,10 @@ wss.on("connection", (ws) => {
                     );
                     return;
                 }
-
-                broadcast(`[${username}]: ${data.msg}`);
+                
+                if (!data.msg.includes("/")) {
+                    broadcast(`[${username}]: ${data.msg}`);
+                }
             }
         } catch (e) {
             console.error("Error processing message:", e);
