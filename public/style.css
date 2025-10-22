@@ -28,7 +28,7 @@ body {
 }
 
 .timestamp {
-  color: #666;
+  color: #999;
   font-size: 0.85em;
   margin-left: auto;
   white-space: nowrap;
@@ -211,7 +211,7 @@ body {
 /* Settings button */
 .settings-button {
   position: fixed;
-  top: 10px;
+  bottom: 10px;
   right: 10px;
   width: 40px;
   height: 40px;
@@ -238,7 +238,7 @@ body {
 /* Settings menu */
 .settings-menu {
   position: fixed;
-  top: 60px;
+  bottom: 60px;
   right: 10px;
   background: #222;
   border: 2px solid #444;
@@ -246,17 +246,17 @@ body {
   padding: 8px;
   z-index: 950;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-  animation: slideDown 0.2s ease-out;
+  animation: slideUp 0.2s ease-out;
 }
 
 .settings-menu.hidden {
   display: none;
 }
 
-@keyframes slideDown {
+@keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;

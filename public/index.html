@@ -100,7 +100,17 @@
     // Username prompt handlers
     function submitUsername() {
       const name = usernameInput.value.trim() || "anon";
-      ws.send(JSON.stringify({ type: "username", msg: name, deviceId: deviceId }));
+      const oldUsername = sessionStorage.getItem("oldUsername");
+      
+      // Send username with old username if it's a username change
+      const payload = { type: "username", msg: name, deviceId: deviceId };
+      if (oldUsername) {
+        payload.oldUsername = oldUsername;
+        sessionStorage.removeItem("oldUsername");
+      }
+      
+      ws.send(JSON.stringify(payload));
+      username = name;
       // Save username to localStorage for auto-join
       localStorage.setItem("chatUsername", name);
       usernamePrompt.classList.add("hidden");
@@ -129,8 +139,16 @@
     });
 
     changeUsernameBtn.addEventListener("click", () => {
+      // Store the old username before clearing
+      const oldUsername = username || savedUsername;
+      
       // Clear saved username
       localStorage.removeItem("chatUsername");
+      
+      // Store the old username temporarily for the username change
+      if (oldUsername) {
+        sessionStorage.setItem("oldUsername", oldUsername);
+      }
       savedUsername = null;
       
       // Close the connection
@@ -184,7 +202,14 @@
       if (data.type === "prompt") {
         // If we have a saved username, auto-join with it
         if (savedUsername) {
-          ws.send(JSON.stringify({ type: "username", msg: savedUsername, deviceId: deviceId }));
+          const oldUsername = sessionStorage.getItem("oldUsername");
+          const payload = { type: "username", msg: savedUsername, deviceId: deviceId };
+          if (oldUsername) {
+            payload.oldUsername = oldUsername;
+            sessionStorage.removeItem("oldUsername");
+          }
+          ws.send(JSON.stringify(payload));
+          username = savedUsername;
           input.disabled = false;
           input.focus();
         } else {
