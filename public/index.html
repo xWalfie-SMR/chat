@@ -48,7 +48,7 @@
 
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && input.value.trim()) {
-        ws.send(JSON.stringify({ type: "chat", msg: input.value }));
+        wss.send(JSON.stringify({ type: "chat", msg: input.value }));
         input.value = "";
       }
     });
