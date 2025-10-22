@@ -13,6 +13,15 @@ const clients = new Map();
 const rateLimits = new Map();
 
 app.use(express.static("public"));
+
+app.use((req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
+  next();
+});
+
 app.get("/healthz", (req, res) => {
     res.status(200).send("OK");
 });
@@ -38,12 +47,10 @@ wss.on("connection", (ws) => {
 
                 // --- Spam Prevention ---
                 if (isSpamming(username)) {
-                    ws.send(
-                        JSON.stringify({
-                            type: "chat",
-                            msg: "Estás enviando mensajes demasiado rápido. Espera un momento.",
-                        })
-                    );
+                    ws.send(JSON.stringify({
+                        type: "chat",
+                        msg: "Estás enviando mensajes demasiado rápido. Espera un momento.",
+                    }));
                     return;
                 }
 
@@ -51,17 +58,22 @@ wss.on("connection", (ws) => {
                 if (!msg) return;
 
                 // --- Handle /kick command ---
-                if (msg.startsWith("/kick ")) {
-                    const kickContent = msg.slice(6).trim();
-                    const lastSpaceIndex = kickContent.lastIndexOf(" ");
+                if (msg.trim().startsWith("/kick")) {
+                    const kickContent = msg.slice(5).trim(); // remove "/kick"
+                    if (!kickContent) {
+                        ws.send(JSON.stringify({
+                            type: "chat",
+                            msg: "Uso: /kick <nombre de usuario> <contraseña>",
+                        }));
+                        return;
+                    }
 
+                    const lastSpaceIndex = kickContent.lastIndexOf(" ");
                     if (lastSpaceIndex === -1) {
-                        ws.send(
-                            JSON.stringify({
-                                type: "chat",
-                                msg: "Uso: /kick <nombre de usuario> <contraseña>",
-                            })
-                        );
+                        ws.send(JSON.stringify({
+                            type: "chat",
+                            msg: "Uso: /kick <nombre de usuario> <contraseña>",
+                        }));
                         return;
                     }
 
@@ -69,22 +81,18 @@ wss.on("connection", (ws) => {
                     const pwd = kickContent.slice(lastSpaceIndex + 1).trim();
 
                     if (!targetName || !pwd) {
-                        ws.send(
-                            JSON.stringify({
-                                type: "chat",
-                                msg: "Uso: /kick <nombre de usuario> <contraseña>",
-                            })
-                        );
+                        ws.send(JSON.stringify({
+                            type: "chat",
+                            msg: "Uso: /kick <nombre de usuario> <contraseña>",
+                        }));
                         return;
                     }
 
                     if (pwd !== ADMIN_PWD) {
-                        ws.send(
-                            JSON.stringify({
-                                type: "chat",
-                                msg: "Contraseña de administrador incorrecta.",
-                            })
-                        );
+                        ws.send(JSON.stringify({
+                            type: "chat",
+                            msg: "Contraseña de administrador incorrecta.",
+                        }));
                         return;
                     }
 
@@ -97,12 +105,10 @@ wss.on("connection", (ws) => {
                     }
 
                     if (!targetClient) {
-                        ws.send(
-                            JSON.stringify({
-                                type: "chat",
-                                msg: `Usuario [${targetName}] no encontrado.`,
-                            })
-                        );
+                        ws.send(JSON.stringify({
+                            type: "chat",
+                            msg: `Usuario [${targetName}] no encontrado.`,
+                        }));
                         return;
                     }
 
@@ -113,9 +119,7 @@ wss.on("connection", (ws) => {
                     }
 
                     clients.delete(targetClient);
-                    broadcast(
-                        `El administrador [${username}] expulsó a [${targetName}] del chat.`
-                    );
+                    broadcast(`El administrador [${username}] expulsó a [${targetName}] del chat.`);
                     return;
                 }
 
@@ -179,15 +183,6 @@ function isSpamming(username) {
 
     rateLimits.set(username, userData);
     return false;
-}
-
-// ----- Broadcast Helper -----
-function broadcast(msg) {
-    for (const client of clients.keys()) {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({ type: "chat", msg }));
-        }
-    }
 }
 
 // ----- Broadcast Reload Helper -----
