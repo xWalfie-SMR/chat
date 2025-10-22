@@ -29,7 +29,7 @@ body {
 
 .timestamp {
   color: #999;
-  font-size: 0.85em;
+  font-size: 1.1em;
   margin-left: auto;
   white-space: nowrap;
 }
@@ -45,14 +45,21 @@ body {
 .usercolor4 { color: #4caf50; }
 .usercolor5 { color: #ff9800; }
 
+#input-container {
+  display: flex;
+  background: #222;
+  border-top: 2px solid #444;
+}
+
 #input {
+  flex: 1;
   border: none;
   padding: 10px;
   font-family: monospace;
   font-size: 1em;
   outline: none;
   color: #eee;
-  background: #222;
+  background: transparent;
 }
 
 #input::placeholder {
@@ -78,9 +85,9 @@ body {
 }
 
 .modal-content {
-  background: #222;
+  background: #111;
   padding: 30px;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 2px solid #444;
   text-align: center;
   min-width: 300px;
@@ -143,9 +150,9 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background: #222;
+  background: #111;
   padding: 25px;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 2px solid #ff9800;
   text-align: center;
   min-width: 350px;
@@ -210,39 +217,38 @@ body {
 
 /* Settings button */
 .settings-button {
-  position: fixed;
-  bottom: 10px;
-  right: 10px;
-  width: 40px;
-  height: 40px;
+  width: 45px;
+  height: 45px;
   border: none;
-  background: #333;
-  color: #fff;
+  border-left: 1px solid #444;
+  background: #222;
+  color: #888;
   font-size: 1.2em;
-  border-radius: 50%;
   cursor: pointer;
   transition: all 0.2s;
-  z-index: 900;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .settings-button:hover {
-  background: #444;
-  transform: rotate(90deg);
+  background: #2a2a2a;
+  color: #aaa;
 }
 
 .settings-button:active {
-  background: #555;
+  background: #333;
 }
 
 /* Settings menu */
 .settings-menu {
   position: fixed;
-  bottom: 60px;
+  bottom: 55px;
   right: 10px;
-  background: #222;
+  background: #111;
   border: 2px solid #444;
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 8px;
   z-index: 950;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -269,8 +275,8 @@ body {
   width: 100%;
   padding: 10px 20px;
   margin: 4px 0;
-  border: none;
-  background: #333;
+  border: 1px solid #333;
+  background: #222;
   color: #eee;
   font-family: monospace;
   font-size: 0.95em;

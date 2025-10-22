@@ -25,9 +25,6 @@
     </div>
   </div>
 
-  <!-- Settings Button -->
-  <button id="settings-btn" class="settings-button" title="Cambiar usuario">⚙️</button>
-
   <!-- Settings Menu -->
   <div id="settings-menu" class="settings-menu hidden">
     <button id="change-username-btn">Cambiar usuario</button>
@@ -35,7 +32,12 @@
   </div>
 
   <div id="chat"></div>
-  <input id="input" placeholder="Escribe tu mensaje y presiona Enter..." autocomplete="off" disabled />
+  
+  <!-- Input container with settings button -->
+  <div id="input-container">
+    <input id="input" placeholder="Escribe tu mensaje y presiona Enter..." autocomplete="off" disabled />
+    <button id="settings-btn" class="settings-button" title="Cambiar usuario">⚙️</button>
+  </div>
   <script>
     const ws = new WebSocket(`wss://${location.host}`);
     const chat = document.getElementById("chat");
@@ -54,6 +56,8 @@
     let username = "";
     const userColors = {};
     let serverStartTime = null;
+    let isAuthenticated = false;
+    let pendingUsername = false;
     
     // Generate or retrieve deviceId from localStorage
     let deviceId = localStorage.getItem("deviceId");
@@ -111,11 +115,10 @@
       
       ws.send(JSON.stringify(payload));
       username = name;
+      pendingUsername = true;
       // Save username to localStorage for auto-join
       localStorage.setItem("chatUsername", name);
       usernamePrompt.classList.add("hidden");
-      input.disabled = false;
-      input.focus();
     }
 
     usernameSubmit.addEventListener("click", submitUsername);
@@ -201,7 +204,7 @@
       // ---- username prompt ----
       if (data.type === "prompt") {
         // If we have a saved username, auto-join with it
-        if (savedUsername) {
+        if (savedUsername && !isAuthenticated) {
           const oldUsername = sessionStorage.getItem("oldUsername");
           const payload = { type: "username", msg: savedUsername, deviceId: deviceId };
           if (oldUsername) {
@@ -210,9 +213,8 @@
           }
           ws.send(JSON.stringify(payload));
           username = savedUsername;
-          input.disabled = false;
-          input.focus();
-        } else {
+          pendingUsername = true;
+        } else if (!isAuthenticated) {
           usernamePrompt.classList.remove("hidden");
           usernameInput.focus();
         }
@@ -235,6 +237,13 @@
         data.messages.forEach((msgData) => {
           addMessage(msgData.msg, msgData.timestamp);
         });
+        // History is sent after username is accepted, so enable input now
+        if (pendingUsername || !isAuthenticated) {
+          isAuthenticated = true;
+          pendingUsername = false;
+          input.disabled = false;
+          input.focus();
+        }
       }
 
       // ---- server reload ----
@@ -245,12 +254,23 @@
       // ---- regular chat message ----
       else if (data.type === "chat") {
         addMessage(data.msg, data.timestamp || Date.now());
+        // If we receive a chat message and we're pending authentication, enable input
+        if (pendingUsername || !isAuthenticated) {
+          isAuthenticated = true;
+          pendingUsername = false;
+          input.disabled = false;
+          input.focus();
+        }
       }
     };
 
     // ---- send message ----
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && input.value.trim()) {
+        if (!isAuthenticated) {
+          console.log("Not authenticated yet, cannot send message");
+          return;
+        }
         ws.send(JSON.stringify({ type: "chat", msg: input.value }));
         input.value = "";
       }
