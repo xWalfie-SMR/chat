@@ -15,6 +15,13 @@
 
     let username = "";
     const userColors = {};
+    
+    // Generate or retrieve deviceId from localStorage
+    let deviceId = localStorage.getItem("deviceId");
+    if (!deviceId) {
+      deviceId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      localStorage.setItem("deviceId", deviceId);
+    }
 
     function getUserColor(name) {
       if (!userColors[name]) {
@@ -30,7 +37,25 @@
       // ---- username prompt ----
       if (data.type === "prompt") {
         username = prompt(data.msg) || "anon";
-        ws.send(JSON.stringify({ type: "username", msg: username }));
+        ws.send(JSON.stringify({ type: "username", msg: username, deviceId: deviceId }));
+      }
+
+      // ---- chat history ----
+      else if (data.type === "history") {
+        data.messages.forEach((msg) => {
+          let nameMatch = msg.match(/^\[([^\]]+)\]/);
+          let content = msg;
+          let nameClass = "";
+          if (nameMatch) {
+            const name = nameMatch[1];
+            content = msg.replace(/^\[[^\]]+\]/, "");
+            nameClass = getUserColor(name);
+            chat.innerHTML += `<div class="message"><span class="username ${nameClass}">[${name}]</span>${content}</div>`;
+          } else {
+            chat.innerHTML += `<div class="message">${msg}</div>`;
+          }
+        });
+        chat.scrollTop = chat.scrollHeight;
       }
 
       // ---- server reload ----

@@ -14,6 +14,8 @@ const clients = new Map(); // ws -> username
 const rateLimits = new Map(); // username -> spam info
 const devices = new Map(); // deviceId -> ws
 const anonymousCounts = {}; // baseName -> count
+const messageHistory = []; // Store last 100 messages
+const MAX_HISTORY = 100;
 
 // --- Static files + disable caching ---
 app.use(express.static("public"));
@@ -73,6 +75,15 @@ wss.on("connection", (ws) => {
 
                 clients.set(ws, finalName);
                 devices.set(deviceId, ws);
+                
+                // Send chat history to the new client
+                if (messageHistory.length > 0) {
+                    ws.send(JSON.stringify({ 
+                        type: "history", 
+                        messages: messageHistory 
+                    }));
+                }
+                
                 broadcast(`[${finalName}] se ha unido al chat.`);
                 return;
             }
@@ -178,6 +189,14 @@ wss.on("connection", (ws) => {
 
 // ----- Broadcast Helper -----
 function broadcast(msg) {
+    // Add message to history
+    messageHistory.push(msg);
+    
+    // Keep only last MAX_HISTORY messages
+    if (messageHistory.length > MAX_HISTORY) {
+        messageHistory.shift();
+    }
+    
     for (const client of clients.keys()) {
         if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({ type: "chat", msg }));
