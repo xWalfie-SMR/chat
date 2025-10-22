@@ -9,7 +9,7 @@
   <div id="chat"></div>
   <input id="input" placeholder="Type your message and press Enter">
   <script>
-    const ws = new WebSocket(`ws://${location.host}`);
+    const ws = new WebSocket(`wss://${location.host}`);
     const chat = document.getElementById("chat");
     const input = document.getElementById("input");
 
@@ -48,7 +48,7 @@
 
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && input.value.trim()) {
-        wss.send(JSON.stringify({ type: "chat", msg: input.value }));
+        ws.send(JSON.stringify({ type: "chat", msg: input.value }));
         input.value = "";
       }
     });
