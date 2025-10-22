@@ -25,6 +25,15 @@
     </div>
   </div>
 
+  <!-- Settings Button -->
+  <button id="settings-btn" class="settings-button" title="Cambiar usuario">⚙️</button>
+
+  <!-- Settings Menu -->
+  <div id="settings-menu" class="settings-menu hidden">
+    <button id="change-username-btn">Cambiar usuario</button>
+    <button id="logout-btn">Cerrar sesión</button>
+  </div>
+
   <div id="chat"></div>
   <input id="input" placeholder="Escribe tu mensaje y presiona Enter..." autocomplete="off" disabled />
   <script>
@@ -37,6 +46,10 @@
     const reloadNotification = document.getElementById("reload-notification");
     const reloadCountdown = document.getElementById("reload-countdown");
     const reloadNowBtn = document.getElementById("reload-now");
+    const settingsBtn = document.getElementById("settings-btn");
+    const settingsMenu = document.getElementById("settings-menu");
+    const changeUsernameBtn = document.getElementById("change-username-btn");
+    const logoutBtn = document.getElementById("logout-btn");
 
     let username = "";
     const userColors = {};
@@ -100,6 +113,47 @@
       if (e.key === "Enter") {
         submitUsername();
       }
+    });
+
+    // Settings menu handlers
+    settingsBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      settingsMenu.classList.toggle("hidden");
+    });
+
+    // Close settings menu when clicking outside
+    document.addEventListener("click", (e) => {
+      if (!settingsMenu.contains(e.target) && e.target !== settingsBtn) {
+        settingsMenu.classList.add("hidden");
+      }
+    });
+
+    changeUsernameBtn.addEventListener("click", () => {
+      // Clear saved username
+      localStorage.removeItem("chatUsername");
+      savedUsername = null;
+      
+      // Close the connection
+      ws.close();
+      
+      // Reload the page to start fresh
+      setTimeout(() => {
+        location.reload();
+      }, 100);
+    });
+
+    logoutBtn.addEventListener("click", () => {
+      // Clear saved username
+      localStorage.removeItem("chatUsername");
+      savedUsername = null;
+      
+      // Close the connection
+      ws.close();
+      
+      // Reload the page
+      setTimeout(() => {
+        location.reload();
+      }, 100);
     });
 
     // Reload notification handlers
