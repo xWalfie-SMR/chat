@@ -32,7 +32,7 @@
   </div>
 
   <div id="chat"></div>
-  
+
   <!-- Input container with settings button -->
   <div id="input-container">
     <input id="input" placeholder="Escribe tu mensaje y presiona Enter..." autocomplete="off" disabled />
@@ -57,16 +57,15 @@
     const userColors = {};
     let serverStartTime = null;
     let isAuthenticated = false;
-    let pendingUsername = false;
-    
-    // Generate or retrieve deviceId from localStorage
+
+    // Generate or retrieve deviceId
     let deviceId = localStorage.getItem("deviceId");
     if (!deviceId) {
       deviceId = Math.random().toString(36).substring(2) + Date.now().toString(36);
       localStorage.setItem("deviceId", deviceId);
     }
 
-    // Retrieve saved username from localStorage
+    // Retrieve saved username
     let savedUsername = localStorage.getItem("chatUsername");
 
     function getUserColor(name) {
@@ -89,7 +88,7 @@
       let content = msg;
       let nameClass = "";
       const timeStr = formatTime(timestamp);
-      
+
       if (nameMatch) {
         const name = nameMatch[1];
         content = msg.replace(/^\[[^\]]+\]/, "");
@@ -101,40 +100,32 @@
       chat.scrollTop = chat.scrollHeight;
     }
 
-    // Username prompt handlers
+    // Submit username
     function submitUsername() {
       const name = usernameInput.value.trim() || "anon";
       const oldUsername = sessionStorage.getItem("oldUsername");
-      
-      // Send username with old username if it's a username change
+
       const payload = { type: "username", msg: name, deviceId: deviceId };
       if (oldUsername) {
         payload.oldUsername = oldUsername;
         sessionStorage.removeItem("oldUsername");
       }
-      
+
       ws.send(JSON.stringify(payload));
-      username = name;
-      pendingUsername = true;
-      // Save username to localStorage for auto-join
-      localStorage.setItem("chatUsername", name);
       usernamePrompt.classList.add("hidden");
     }
 
     usernameSubmit.addEventListener("click", submitUsername);
     usernameInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        submitUsername();
-      }
+      if (e.key === "Enter") submitUsername();
     });
 
-    // Settings menu handlers
+    // Settings menu
     settingsBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       settingsMenu.classList.toggle("hidden");
     });
 
-    // Close settings menu when clicking outside
     document.addEventListener("click", (e) => {
       if (!settingsMenu.contains(e.target) && e.target !== settingsBtn) {
         settingsMenu.classList.add("hidden");
@@ -142,47 +133,26 @@
     });
 
     changeUsernameBtn.addEventListener("click", () => {
-      // Store the old username before clearing
-      const oldUsername = username || savedUsername;
-      
-      // Clear saved username
-      localStorage.removeItem("chatUsername");
-      
-      // Store the old username temporarily for the username change
-      if (oldUsername) {
-        sessionStorage.setItem("oldUsername", oldUsername);
+      if (username) {
+        sessionStorage.setItem("oldUsername", username);
       }
-      savedUsername = null;
-      
-      // Close the connection
+      localStorage.removeItem("chatUsername");
       ws.close();
-      
-      // Reload the page to start fresh
-      setTimeout(() => {
-        location.reload();
-      }, 100);
+      setTimeout(() => location.reload(), 100);
     });
 
     logoutBtn.addEventListener("click", () => {
-      // Clear saved username
       localStorage.removeItem("chatUsername");
-      savedUsername = null;
-      
-      // Close the connection
       ws.close();
-      
-      // Reload the page
-      setTimeout(() => {
-        location.reload();
-      }, 100);
+      setTimeout(() => location.reload(), 100);
     });
 
-    // Reload notification handlers
+    // Reload notification
     function showReloadNotification() {
       reloadNotification.classList.remove("hidden");
       let seconds = 5;
       reloadCountdown.textContent = seconds;
-      
+
       const interval = setInterval(() => {
         seconds--;
         reloadCountdown.textContent = seconds;
@@ -191,19 +161,19 @@
           location.reload();
         }
       }, 1000);
-      
-      reloadNowBtn.addEventListener("click", () => {
+
+      reloadNowBtn.onclick = () => {
         clearInterval(interval);
         location.reload();
-      });
+      };
     }
 
+    // WebSocket message handling
     ws.onmessage = (evt) => {
       const data = JSON.parse(evt.data);
 
-      // ---- username prompt ----
       if (data.type === "prompt") {
-        // If we have a saved username, auto-join with it
+        // Auto-join with saved username if available
         if (savedUsername && !isAuthenticated) {
           const oldUsername = sessionStorage.getItem("oldUsername");
           const payload = { type: "username", msg: savedUsername, deviceId: deviceId };
@@ -212,63 +182,56 @@
             sessionStorage.removeItem("oldUsername");
           }
           ws.send(JSON.stringify(payload));
-          username = savedUsername;
-          pendingUsername = true;
         } else if (!isAuthenticated) {
           usernamePrompt.classList.remove("hidden");
           usernameInput.focus();
         }
       }
 
-      // ---- server info ----
       else if (data.type === "serverInfo") {
         serverStartTime = data.startTime;
-        // Store in sessionStorage to detect if server restarted
         const lastKnownStart = sessionStorage.getItem("serverStartTime");
         if (lastKnownStart && lastKnownStart !== serverStartTime.toString()) {
-          // Server restarted! Show reload notification
           showReloadNotification();
         }
         sessionStorage.setItem("serverStartTime", serverStartTime.toString());
       }
 
-      // ---- chat history ----
+      else if (data.type === "authenticated") {
+        // Server confirmed authentication
+        username = data.username;
+        isAuthenticated = true;
+        input.disabled = false;
+        input.focus();
+        localStorage.setItem("chatUsername", username);
+      }
+
       else if (data.type === "history") {
+        // Load chat history
         data.messages.forEach((msgData) => {
           addMessage(msgData.msg, msgData.timestamp);
         });
-        // History is sent after username is accepted, so enable input now
-        if (pendingUsername || !isAuthenticated) {
-          isAuthenticated = true;
-          pendingUsername = false;
-          input.disabled = false;
-          input.focus();
-        }
       }
 
-      // ---- server reload ----
       else if (data.type === "reload") {
         showReloadNotification();
       }
 
-      // ---- regular chat message ----
       else if (data.type === "chat") {
         addMessage(data.msg, data.timestamp || Date.now());
-        // If we receive a chat message and we're pending authentication, enable input
-        if (pendingUsername || !isAuthenticated) {
-          isAuthenticated = true;
-          pendingUsername = false;
-          input.disabled = false;
-          input.focus();
-        }
+      }
+
+      else if (data.type === "error") {
+        console.error("Server error:", data.msg);
+        addMessage(`Error: ${data.msg}`, Date.now());
       }
     };
 
-    // ---- send message ----
+    // Send message
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && input.value.trim()) {
         if (!isAuthenticated) {
-          console.log("Not authenticated yet, cannot send message");
+          console.log("Not authenticated yet");
           return;
         }
         ws.send(JSON.stringify({ type: "chat", msg: input.value }));
@@ -276,7 +239,7 @@
       }
     });
 
-    // Periodic server version check (every 30 seconds)
+    // Periodic version check
     setInterval(() => {
       if (ws.readyState === WebSocket.OPEN && serverStartTime) {
         ws.send(JSON.stringify({ type: "ping" }));
