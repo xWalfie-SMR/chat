@@ -1,6 +1,7 @@
 const express = require("express");
 const http = require("http");
 const WebSocket = require("ws");
+const crypto = require("crypto");
 
 const app = express();
 const server = http.createServer(app);
@@ -9,11 +10,13 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 8080;
 const ADMIN_PWD = process.env.ADMIN_PWD;
 
-const clients = new Map();
-const rateLimits = new Map();
+const clients = new Map(); // ws -> username
+const rateLimits = new Map(); // username -> spam info
+const devices = new Map(); // deviceId -> ws
+const anonymousCounts = {}; // baseName -> count
 
+// --- Static files + disable caching ---
 app.use(express.static("public"));
-
 app.use((req, res, next) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
@@ -22,10 +25,9 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get("/healthz", (req, res) => {
-    res.status(200).send("OK");
-});
+app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
+// --- WebSocket handling ---
 wss.on("connection", (ws) => {
     ws.send(JSON.stringify({ type: "prompt", msg: "Escribe tu nombre de usuario:" }));
 
@@ -35,9 +37,43 @@ wss.on("connection", (ws) => {
 
             // --- Handle username setup ---
             if (data.type === "username") {
-                const username = (data.msg || "anónimo").trim();
-                clients.set(ws, username);
-                broadcast(`[${username}] se ha unido al chat.`);
+                let { msg: requestedName, deviceId } = data;
+                requestedName = (requestedName || "anon").trim();
+
+                // Check for device reuse
+                if (!deviceId) {
+                    ws.send(JSON.stringify({ type: "chat", msg: "Error: dispositivo no identificado." }));
+                    ws.close();
+                    return;
+                }
+
+                if (devices.has(deviceId)) {
+                    ws.send(JSON.stringify({ type: "chat", msg: "Ya hay un usuario conectado desde este dispositivo." }));
+                    ws.close();
+                    return;
+                }
+
+                // Ensure unique username
+                let finalName = requestedName;
+
+                if (!requestedName || requestedName.toLowerCase().startsWith("anon")) {
+                    // Handle anonymous numbering
+                    const base = "anon";
+                    const count = anonymousCounts[base] || 0;
+                    finalName = count === 0 ? base : `${base}-${count}`;
+                    anonymousCounts[base] = count + 1;
+                } else {
+                    // Prevent duplicate custom names
+                    let suffix = 1;
+                    while ([...clients.values()].includes(finalName)) {
+                        finalName = `${requestedName}-${suffix}`;
+                        suffix++;
+                    }
+                }
+
+                clients.set(ws, finalName);
+                devices.set(deviceId, ws);
+                broadcast(`[${finalName}] se ha unido al chat.`);
                 return;
             }
 
@@ -112,12 +148,7 @@ wss.on("connection", (ws) => {
                         return;
                     }
 
-                    try {
-                        targetClient.terminate();
-                    } catch (e) {
-                        console.error(`Failed to remove user [${targetName}].`, e);
-                    }
-
+                    try { targetClient.terminate(); } catch (e) { console.error(e); }
                     clients.delete(targetClient);
                     broadcast(`El administrador [${username}] expulsó a [${targetName}] del chat.`);
                     return;
@@ -135,6 +166,10 @@ wss.on("connection", (ws) => {
 
     ws.on("close", () => {
         const name = clients.get(ws);
+        // Remove device mapping
+        for (const [deviceId, clientWs] of devices.entries()) {
+            if (clientWs === ws) devices.delete(deviceId);
+        }
         if (name) broadcast(`[${name}] ha salido del chat.`);
         clients.delete(ws);
         rateLimits.delete(name);
@@ -163,9 +198,7 @@ function isSpamming(username) {
     }
 
     const userData = rateLimits.get(username);
-
     if (now < userData.mutedUntil) return true;
-
     if (now - userData.last > TIME_WINDOW) {
         userData.count = 1;
         userData.last = now;
@@ -174,7 +207,6 @@ function isSpamming(username) {
     }
 
     userData.count++;
-
     if (userData.count > MAX_MESSAGES) {
         userData.mutedUntil = now + MUTE_DURATION;
         rateLimits.set(username, userData);
