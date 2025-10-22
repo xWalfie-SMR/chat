@@ -52,10 +52,26 @@ wss.on("connection", (ws) => {
                     return;
                 }
 
+                // If device already has a connection, close the old one and allow reconnection
                 if (devices.has(deviceId)) {
-                    ws.send(JSON.stringify({ type: "chat", msg: "Ya hay un usuario conectado desde este dispositivo." }));
-                    ws.close();
-                    return;
+                    const oldWs = devices.get(deviceId);
+                    const oldName = clients.get(oldWs);
+                    
+                    // Clean up old connection
+                    clients.delete(oldWs);
+                    devices.delete(deviceId);
+                    rateLimits.delete(oldName);
+                    
+                    try {
+                        oldWs.close();
+                    } catch (e) {
+                        console.error("Error closing old connection:", e);
+                    }
+                    
+                    // Notify other users about the disconnection
+                    if (oldName) {
+                        broadcast(`[${oldName}] ha salido del chat.`, Date.now());
+                    }
                 }
 
                 // Ensure unique username

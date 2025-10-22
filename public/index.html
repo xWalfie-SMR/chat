@@ -49,6 +49,9 @@
       localStorage.setItem("deviceId", deviceId);
     }
 
+    // Retrieve saved username from localStorage
+    let savedUsername = localStorage.getItem("chatUsername");
+
     function getUserColor(name) {
       if (!userColors[name]) {
         const index = Object.keys(userColors).length % 6;
@@ -85,6 +88,8 @@
     function submitUsername() {
       const name = usernameInput.value.trim() || "anon";
       ws.send(JSON.stringify({ type: "username", msg: name, deviceId: deviceId }));
+      // Save username to localStorage for auto-join
+      localStorage.setItem("chatUsername", name);
       usernamePrompt.classList.add("hidden");
       input.disabled = false;
       input.focus();
@@ -123,8 +128,15 @@
 
       // ---- username prompt ----
       if (data.type === "prompt") {
-        usernamePrompt.classList.remove("hidden");
-        usernameInput.focus();
+        // If we have a saved username, auto-join with it
+        if (savedUsername) {
+          ws.send(JSON.stringify({ type: "username", msg: savedUsername, deviceId: deviceId }));
+          input.disabled = false;
+          input.focus();
+        } else {
+          usernamePrompt.classList.remove("hidden");
+          usernameInput.focus();
+        }
       }
 
       // ---- server info ----
