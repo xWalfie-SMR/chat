@@ -7,7 +7,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 8080;
-const ADMIN_PWD = process.env.ADMIN_PWD || "NOOB";
+const ADMIN_PWD = process.env.ADMIN_PWD;
 
 const clients = new Map();
 const rateLimits = new Map();
@@ -180,5 +180,29 @@ function isSpamming(username) {
     rateLimits.set(username, userData);
     return false;
 }
+
+// ----- Broadcast Helper -----
+function broadcast(msg) {
+    for (const client of clients.keys()) {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({ type: "chat", msg }));
+        }
+    }
+}
+
+// ----- Broadcast Reload Helper -----
+function broadcastReload() {
+    for (const client of clients.keys()) {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({ type: "reload" }));
+        }
+    }
+}
+
+// Send reload notice after server boots
+setTimeout(() => {
+    console.log("Broadcasting reload to clients...");
+    broadcastReload();
+}, 1000);
 
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

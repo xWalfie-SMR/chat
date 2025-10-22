@@ -7,7 +7,7 @@
 </head>
 <body>
   <div id="chat"></div>
-  <input id="input" placeholder="Type your message and press Enter">
+  <input id="input" placeholder="Escribe tu mensaje y presiona Enter..." autocomplete="off" autofocus />
   <script>
     const ws = new WebSocket(`wss://${location.host}`);
     const chat = document.getElementById("chat");
@@ -26,10 +26,26 @@
 
     ws.onmessage = (evt) => {
       const data = JSON.parse(evt.data);
+
+      // ---- username prompt ----
       if (data.type === "prompt") {
         username = prompt(data.msg) || "anon";
         ws.send(JSON.stringify({ type: "username", msg: username }));
-      } else if (data.type === "chat") {
+      }
+
+      // ---- server reload ----
+      else if (data.type === "reload") {
+        // show prompt-like alert
+        alert("El servidor se ha actualizado.\nLa página se recargará en 5 segundos...");
+        // disable input while waiting
+        input.disabled = true;
+        setTimeout(() => {
+          location.reload();
+        }, 5000);
+      }
+
+      // ---- regular chat message ----
+      else if (data.type === "chat") {
         const msg = data.msg;
         let nameMatch = msg.match(/^\[([^\]]+)\]/);
         let content = msg;
@@ -46,6 +62,7 @@
       }
     };
 
+    // ---- send message ----
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && input.value.trim()) {
         ws.send(JSON.stringify({ type: "chat", msg: input.value }));
