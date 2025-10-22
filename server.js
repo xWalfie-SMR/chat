@@ -7,9 +7,10 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 8080;
+const ADMIN_PWD = process.env.ADMIN_PWD || "NOOB";
 
 const clients = new Map();
-const ADMIN_PWD = process.env.ADMIN_PWD || "NOOB";
+const rateLimits = new Map();
 
 app.use(express.static("public"));
 app.get("/healthz", (req, res) => {
@@ -17,27 +18,61 @@ app.get("/healthz", (req, res) => {
 });
 
 wss.on("connection", (ws) => {
-    ws.send(JSON.stringify({ type: "prompt", msg: "Enter username:" }));
+    ws.send(JSON.stringify({ type: "prompt", msg: "Escribe tu nombre de usuario:" }));
 
     ws.on("message", (message) => {
         try {
             const data = JSON.parse(message);
-            if (data.type === "username") {
-                clients.set(ws, data.msg || "anon");
-                broadcast(`[${clients.get(ws)}] joined the chat.`);
-            } else if (data.type === "chat") {
-                const username = clients.get(ws) || "anon";
 
-                if (typeof data.msg === "string" && data.msg.startsWith("/kick ")) {
-                    const parts = data.msg.split(/\s+/);
-                    const targetName = parts[1];
-                    const pwd = parts[2];
+            // --- Handle username setup ---
+            if (data.type === "username") {
+                const username = (data.msg || "anónimo").trim();
+                clients.set(ws, username);
+                broadcast(`[${username}] se ha unido al chat.`);
+                return;
+            }
+
+            // --- Handle chat messages ---
+            if (data.type === "chat") {
+                const username = clients.get(ws) || "anónimo";
+
+                // --- Spam Prevention ---
+                if (isSpamming(username)) {
+                    ws.send(
+                        JSON.stringify({
+                            type: "chat",
+                            msg: "Estás enviando mensajes demasiado rápido. Espera un momento.",
+                        })
+                    );
+                    return;
+                }
+
+                const msg = (data.msg || "").trim();
+                if (!msg) return;
+
+                // --- Handle /kick command ---
+                if (msg.startsWith("/kick ")) {
+                    const kickContent = msg.slice(6).trim();
+                    const lastSpaceIndex = kickContent.lastIndexOf(" ");
+
+                    if (lastSpaceIndex === -1) {
+                        ws.send(
+                            JSON.stringify({
+                                type: "chat",
+                                msg: "Uso: /kick <nombre de usuario> <contraseña>",
+                            })
+                        );
+                        return;
+                    }
+
+                    const targetName = kickContent.slice(0, lastSpaceIndex).trim();
+                    const pwd = kickContent.slice(lastSpaceIndex + 1).trim();
 
                     if (!targetName || !pwd) {
                         ws.send(
                             JSON.stringify({
                                 type: "chat",
-                                msg: "Usage: /kick <username> <password>",
+                                msg: "Uso: /kick <nombre de usuario> <contraseña>",
                             })
                         );
                         return;
@@ -45,7 +80,10 @@ wss.on("connection", (ws) => {
 
                     if (pwd !== ADMIN_PWD) {
                         ws.send(
-                            JSON.stringify({ type: "chat", msg: "Invalid admin password." })
+                            JSON.stringify({
+                                type: "chat",
+                                msg: "Contraseña de administrador incorrecta.",
+                            })
                         );
                         return;
                     }
@@ -62,7 +100,7 @@ wss.on("connection", (ws) => {
                         ws.send(
                             JSON.stringify({
                                 type: "chat",
-                                msg: `User [${targetName}] not found.`,
+                                msg: `Usuario [${targetName}] no encontrado.`,
                             })
                         );
                         return;
@@ -76,13 +114,14 @@ wss.on("connection", (ws) => {
 
                     clients.delete(targetClient);
                     broadcast(
-                        `Admin [${username}] removed user [${targetName}] from the chat.`
+                        `El administrador [${username}] expulsó a [${targetName}] del chat.`
                     );
                     return;
                 }
-                
-                if (!data.msg.includes("/")) {
-                    broadcast(`[${username}]: ${data.msg}`);
+
+                // --- Normal Message ---
+                if (!msg.startsWith("/")) {
+                    broadcast(`[${username}]: ${msg}`);
                 }
             }
         } catch (e) {
@@ -92,15 +131,54 @@ wss.on("connection", (ws) => {
 
     ws.on("close", () => {
         const name = clients.get(ws);
-        if (name) broadcast(`[${name}] left the chat.`);
+        if (name) broadcast(`[${name}] ha salido del chat.`);
         clients.delete(ws);
+        rateLimits.delete(name);
     });
 });
 
+// ----- Broadcast Helper -----
 function broadcast(msg) {
     for (const client of clients.keys()) {
-        client.send(JSON.stringify({ type: "chat", msg }));
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({ type: "chat", msg }));
+        }
     }
+}
+
+// ----- Spam Prevention -----
+const MAX_MESSAGES = 5;
+const TIME_WINDOW = 10 * 1000;
+const MUTE_DURATION = 15 * 1000;
+
+function isSpamming(username) {
+    const now = Date.now();
+    if (!rateLimits.has(username)) {
+        rateLimits.set(username, { count: 1, last: now, mutedUntil: 0 });
+        return false;
+    }
+
+    const userData = rateLimits.get(username);
+
+    if (now < userData.mutedUntil) return true;
+
+    if (now - userData.last > TIME_WINDOW) {
+        userData.count = 1;
+        userData.last = now;
+        rateLimits.set(username, userData);
+        return false;
+    }
+
+    userData.count++;
+
+    if (userData.count > MAX_MESSAGES) {
+        userData.mutedUntil = now + MUTE_DURATION;
+        rateLimits.set(username, userData);
+        return true;
+    }
+
+    rateLimits.set(username, userData);
+    return false;
 }
 
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
