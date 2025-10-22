@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Hybrid Terminal Chat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="chat"></div>
+  <input id="input" placeholder="Type your message and press Enter">
+  <script>
+    const ws = new WebSocket(`ws://${location.host}`);
+    const chat = document.getElementById("chat");
+    const input = document.getElementById("input");
+
+    let username = "";
+    const userColors = {};
+
+    function getUserColor(name) {
+      if (!userColors[name]) {
+        const index = Object.keys(userColors).length % 6;
+        userColors[name] = `usercolor${index}`;
+      }
+      return userColors[name];
+    }
+
+    ws.onmessage = (evt) => {
+      const data = JSON.parse(evt.data);
+      if (data.type === "prompt") {
+        username = prompt(data.msg) || "anon";
+        ws.send(JSON.stringify({ type: "username", msg: username }));
+      } else if (data.type === "chat") {
+        const msg = data.msg;
+        let nameMatch = msg.match(/^\[([^\]]+)\]/);
+        let content = msg;
+        let nameClass = "";
+        if (nameMatch) {
+          const name = nameMatch[1];
+          content = msg.replace(/^\[[^\]]+\]/, "");
+          nameClass = getUserColor(name);
+          chat.innerHTML += `<div class="message"><span class="username ${nameClass}">[${name}]</span>${content}</div>`;
+        } else {
+          chat.innerHTML += `<div class="message">${msg}</div>`;
+        }
+        chat.scrollTop = chat.scrollHeight;
+      }
+    };
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && input.value.trim()) {
+        ws.send(JSON.stringify({ type: "chat", msg: input.value }));
+        input.value = "";
+      }
+    });
+  </script>
+</body>
+</html>
