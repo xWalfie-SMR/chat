@@ -18,11 +18,24 @@ body {
 
 .message {
   margin: 2px 0;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.message-content {
+  flex: 1;
+}
+
+.timestamp {
+  color: #666;
+  font-size: 0.85em;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .username {
   font-weight: bold;
-  margin-right: 5px;
 }
 
 .usercolor0 { color: #f44336; }
@@ -44,4 +57,153 @@ body {
 
 #input::placeholder {
   color: #888;
+}
+
+/* Modal styles for username prompt */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  background: #222;
+  padding: 30px;
+  border-radius: 8px;
+  border: 2px solid #444;
+  text-align: center;
+  min-width: 300px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  color: #4caf50;
+}
+
+.modal-content p {
+  margin: 10px 0;
+  color: #ccc;
+}
+
+.modal-content input {
+  width: 100%;
+  padding: 10px;
+  margin: 15px 0;
+  border: 2px solid #444;
+  background: #111;
+  color: #eee;
+  font-family: monospace;
+  font-size: 1em;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.modal-content input:focus {
+  outline: none;
+  border-color: #4caf50;
+}
+
+.modal-content button {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  background: #4caf50;
+  color: #fff;
+  font-family: monospace;
+  font-size: 1em;
+  font-weight: bold;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.modal-content button:hover {
+  background: #45a049;
+}
+
+.modal-content button:active {
+  background: #3d8b40;
+}
+
+/* Notification styles for reload prompt */
+.notification {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #222;
+  padding: 25px;
+  border-radius: 8px;
+  border: 2px solid #ff9800;
+  text-align: center;
+  min-width: 350px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  z-index: 1001;
+  animation: slideIn 0.3s ease-out;
+}
+
+.notification.hidden {
+  display: none;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translate(-50%, -60%);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, -50%);
+    opacity: 1;
+  }
+}
+
+.notification-content p {
+  margin: 10px 0;
+  color: #eee;
+}
+
+.notification-content p:first-child {
+  font-size: 1.2em;
+  font-weight: bold;
+  color: #ff9800;
+}
+
+#reload-countdown {
+  color: #4caf50;
+  font-weight: bold;
+  font-size: 1.1em;
+}
+
+#reload-now {
+  margin-top: 15px;
+  padding: 10px 20px;
+  border: none;
+  background: #ff9800;
+  color: #fff;
+  font-family: monospace;
+  font-size: 1em;
+  font-weight: bold;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+#reload-now:hover {
+  background: #e68900;
+}
+
+#reload-now:active {
+  background: #cc7a00;
 }
