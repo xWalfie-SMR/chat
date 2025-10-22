@@ -14,8 +14,9 @@ const clients = new Map(); // ws -> username
 const rateLimits = new Map(); // username -> spam info
 const devices = new Map(); // deviceId -> ws
 const anonymousCounts = {}; // baseName -> count
-const messageHistory = []; // Store last 100 messages
+const messageHistory = []; // Store last 100 messages with timestamps
 const MAX_HISTORY = 100;
+const SERVER_START_TIME = Date.now(); // Track when server started
 
 // --- Static files + disable caching ---
 app.use(express.static("public"));
@@ -32,6 +33,8 @@ app.get("/healthz", (req, res) => res.status(200).send("OK"));
 // --- WebSocket handling ---
 wss.on("connection", (ws) => {
     ws.send(JSON.stringify({ type: "prompt", msg: "Escribe tu nombre de usuario:" }));
+    // Send server start time to help detect restarts
+    ws.send(JSON.stringify({ type: "serverInfo", startTime: SERVER_START_TIME }));
 
     ws.on("message", (message) => {
         try {
@@ -84,7 +87,13 @@ wss.on("connection", (ws) => {
                     }));
                 }
                 
-                broadcast(`[${finalName}] se ha unido al chat.`);
+                broadcast(`[${finalName}] se ha unido al chat.`, Date.now());
+                return;
+            }
+
+            // --- Handle ping (version check) ---
+            if (data.type === "ping") {
+                ws.send(JSON.stringify({ type: "serverInfo", startTime: SERVER_START_TIME }));
                 return;
             }
 
@@ -161,13 +170,13 @@ wss.on("connection", (ws) => {
 
                     try { targetClient.terminate(); } catch (e) { console.error(e); }
                     clients.delete(targetClient);
-                    broadcast(`El administrador [${username}] expulsó a [${targetName}] del chat.`);
+                    broadcast(`El administrador [${username}] expulsó a [${targetName}] del chat.`, Date.now());
                     return;
                 }
 
                 // --- Normal Message ---
                 if (!msg.startsWith("/")) {
-                    broadcast(`[${username}]: ${msg}`);
+                    broadcast(`[${username}]: ${msg}`, Date.now());
                 }
             }
         } catch (e) {
@@ -181,16 +190,16 @@ wss.on("connection", (ws) => {
         for (const [deviceId, clientWs] of devices.entries()) {
             if (clientWs === ws) devices.delete(deviceId);
         }
-        if (name) broadcast(`[${name}] ha salido del chat.`);
+        if (name) broadcast(`[${name}] ha salido del chat.`, Date.now());
         clients.delete(ws);
         rateLimits.delete(name);
     });
 });
 
 // ----- Broadcast Helper -----
-function broadcast(msg) {
-    // Add message to history
-    messageHistory.push(msg);
+function broadcast(msg, timestamp) {
+    // Add message to history with timestamp
+    messageHistory.push({ msg, timestamp });
     
     // Keep only last MAX_HISTORY messages
     if (messageHistory.length > MAX_HISTORY) {
@@ -199,7 +208,7 @@ function broadcast(msg) {
     
     for (const client of clients.keys()) {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({ type: "chat", msg }));
+            client.send(JSON.stringify({ type: "chat", msg, timestamp }));
         }
     }
 }
@@ -245,10 +254,7 @@ function broadcastReload() {
     }
 }
 
-// Send reload notice after server boots
-setTimeout(() => {
-    console.log("Broadcasting reload to clients...");
-    broadcastReload();
-}, 1000);
+// Note: Reload detection now works via client-side version checking
+// Clients detect server restarts by comparing SERVER_START_TIME
 
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

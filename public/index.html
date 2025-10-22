@@ -6,15 +6,41 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Username Prompt Overlay -->
+  <div id="username-prompt" class="modal">
+    <div class="modal-content">
+      <h2>Bienvenido al Chat</h2>
+      <p>Escribe tu nombre de usuario:</p>
+      <input id="username-input" type="text" placeholder="Usuario" autocomplete="off" autofocus />
+      <button id="username-submit">Entrar</button>
+    </div>
+  </div>
+
+  <!-- Reload Notification -->
+  <div id="reload-notification" class="notification hidden">
+    <div class="notification-content">
+      <p>¡El servidor se ha actualizado!</p>
+      <p>La página se recargará en <span id="reload-countdown">5</span> segundos...</p>
+      <button id="reload-now">Recargar ahora</button>
+    </div>
+  </div>
+
   <div id="chat"></div>
-  <input id="input" placeholder="Escribe tu mensaje y presiona Enter..." autocomplete="off" autofocus />
+  <input id="input" placeholder="Escribe tu mensaje y presiona Enter..." autocomplete="off" disabled />
   <script>
     const ws = new WebSocket(`wss://${location.host}`);
     const chat = document.getElementById("chat");
     const input = document.getElementById("input");
+    const usernamePrompt = document.getElementById("username-prompt");
+    const usernameInput = document.getElementById("username-input");
+    const usernameSubmit = document.getElementById("username-submit");
+    const reloadNotification = document.getElementById("reload-notification");
+    const reloadCountdown = document.getElementById("reload-countdown");
+    const reloadNowBtn = document.getElementById("reload-now");
 
     let username = "";
     const userColors = {};
+    let serverStartTime = null;
     
     // Generate or retrieve deviceId from localStorage
     let deviceId = localStorage.getItem("deviceId");
@@ -31,59 +57,103 @@
       return userColors[name];
     }
 
+    function formatTime(timestamp) {
+      const date = new Date(timestamp);
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      return `${hours}:${minutes}`;
+    }
+
+    function addMessage(msg, timestamp) {
+      let nameMatch = msg.match(/^\[([^\]]+)\]/);
+      let content = msg;
+      let nameClass = "";
+      const timeStr = formatTime(timestamp);
+      
+      if (nameMatch) {
+        const name = nameMatch[1];
+        content = msg.replace(/^\[[^\]]+\]/, "");
+        nameClass = getUserColor(name);
+        chat.innerHTML += `<div class="message"><span class="username ${nameClass}">[${name}]</span><span class="message-content">${content}</span><span class="timestamp">${timeStr}</span></div>`;
+      } else {
+        chat.innerHTML += `<div class="message"><span class="message-content">${msg}</span><span class="timestamp">${timeStr}</span></div>`;
+      }
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    // Username prompt handlers
+    function submitUsername() {
+      const name = usernameInput.value.trim() || "anon";
+      ws.send(JSON.stringify({ type: "username", msg: name, deviceId: deviceId }));
+      usernamePrompt.classList.add("hidden");
+      input.disabled = false;
+      input.focus();
+    }
+
+    usernameSubmit.addEventListener("click", submitUsername);
+    usernameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        submitUsername();
+      }
+    });
+
+    // Reload notification handlers
+    function showReloadNotification() {
+      reloadNotification.classList.remove("hidden");
+      let seconds = 5;
+      reloadCountdown.textContent = seconds;
+      
+      const interval = setInterval(() => {
+        seconds--;
+        reloadCountdown.textContent = seconds;
+        if (seconds <= 0) {
+          clearInterval(interval);
+          location.reload();
+        }
+      }, 1000);
+      
+      reloadNowBtn.addEventListener("click", () => {
+        clearInterval(interval);
+        location.reload();
+      });
+    }
+
     ws.onmessage = (evt) => {
       const data = JSON.parse(evt.data);
 
       // ---- username prompt ----
       if (data.type === "prompt") {
-        username = prompt(data.msg) || "anon";
-        ws.send(JSON.stringify({ type: "username", msg: username, deviceId: deviceId }));
+        usernamePrompt.classList.remove("hidden");
+        usernameInput.focus();
+      }
+
+      // ---- server info ----
+      else if (data.type === "serverInfo") {
+        serverStartTime = data.startTime;
+        // Store in sessionStorage to detect if server restarted
+        const lastKnownStart = sessionStorage.getItem("serverStartTime");
+        if (lastKnownStart && lastKnownStart !== serverStartTime.toString()) {
+          // Server restarted! Show reload notification
+          showReloadNotification();
+        }
+        sessionStorage.setItem("serverStartTime", serverStartTime.toString());
       }
 
       // ---- chat history ----
       else if (data.type === "history") {
-        data.messages.forEach((msg) => {
-          let nameMatch = msg.match(/^\[([^\]]+)\]/);
-          let content = msg;
-          let nameClass = "";
-          if (nameMatch) {
-            const name = nameMatch[1];
-            content = msg.replace(/^\[[^\]]+\]/, "");
-            nameClass = getUserColor(name);
-            chat.innerHTML += `<div class="message"><span class="username ${nameClass}">[${name}]</span>${content}</div>`;
-          } else {
-            chat.innerHTML += `<div class="message">${msg}</div>`;
-          }
+        data.messages.forEach((msgData) => {
+          addMessage(msgData.msg, msgData.timestamp);
         });
-        chat.scrollTop = chat.scrollHeight;
       }
 
       // ---- server reload ----
       else if (data.type === "reload") {
-        // show prompt-like alert
-        alert("El servidor se ha actualizado.\nLa página se recargará en 5 segundos...");
-        // disable input while waiting
-        input.disabled = true;
-        setTimeout(() => {
-          location.reload();
-        }, 5000);
+        showReloadNotification();
       }
 
       // ---- regular chat message ----
       else if (data.type === "chat") {
-        const msg = data.msg;
-        let nameMatch = msg.match(/^\[([^\]]+)\]/);
-        let content = msg;
-        let nameClass = "";
-        if (nameMatch) {
-          const name = nameMatch[1];
-          content = msg.replace(/^\[[^\]]+\]/, "");
-          nameClass = getUserColor(name);
-          chat.innerHTML += `<div class="message"><span class="username ${nameClass}">[${name}]</span>${content}</div>`;
-        } else {
-          chat.innerHTML += `<div class="message">${msg}</div>`;
-        }
-        chat.scrollTop = chat.scrollHeight;
+        addMessage(data.msg, data.timestamp || Date.now());
       }
     };
 
@@ -94,6 +164,13 @@
         input.value = "";
       }
     });
+
+    // Periodic server version check (every 30 seconds)
+    setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN && serverStartTime) {
+        ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 30000);
   </script>
 </body>
 </html>
