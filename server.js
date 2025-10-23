@@ -24,15 +24,18 @@ const colors = {
   gray: "\x1b[90m",
 };
 
-// --- DATA STRUCTURES (SIMPLIFIED) ---
+// --- DATA STRUCTURES ---
 const clients = new Map(); // ws -> { username, deviceId, authenticated, terminalMode }
 const deviceToUsername = new Map(); // deviceId -> username (for reconnection)
 const activeUsernames = new Set(); // Currently active usernames
+const disconnectionTimeouts = new Map(); // deviceId -> { timeout, username, timestamp }
 const messageHistory = [];
 const rateLimits = new Map();
 
 const MAX_HISTORY = 100;
 const SERVER_START_TIME = Date.now();
+const MAX_USERNAME_LENGTH = 20;
+const RECONNECT_GRACE_PERIOD = 10 * 1000; // 10 seconds
 
 // --- CORS ---
 app.use((req, res, next) => {
@@ -74,8 +77,8 @@ function sanitizeUsername(username) {
     return "anon";
   }
 
-  if (sanitized.length > 20) {
-    return sanitized.substring(0, 20);
+  if (sanitized.length > MAX_USERNAME_LENGTH) {
+    return sanitized.substring(0, MAX_USERNAME_LENGTH);
   }
 
   return sanitized;
@@ -239,27 +242,87 @@ function isSpamming(username) {
   return false;
 }
 
-// --- CLEANUP ---
-function cleanupClient(ws, silent = false) {
+// --- CLEANUP WITH GRACE PERIOD ---
+function scheduleCleanup(ws) {
   const clientData = clients.get(ws);
   if (!clientData) return;
 
   const { username, deviceId } = clientData;
 
-  // Remove from clients
+  // Remove from clients map immediately
   clients.delete(ws);
 
-  // Free up the username
-  if (username) {
-    activeUsernames.delete(username);
+  if (!deviceId || !username) return;
 
-    // Don't announce if silent or if device is reconnecting
-    if (!silent && username) {
-      broadcast(`[${username}] ha salido del chat.`);
-    }
+  console.log(
+    `[GRACE] Scheduling cleanup for ${username} (${deviceId}) - ${RECONNECT_GRACE_PERIOD / 1000}s grace period`
+  );
+
+  // Cancel any existing timeout for this device
+  if (disconnectionTimeouts.has(deviceId)) {
+    clearTimeout(disconnectionTimeouts.get(deviceId).timeout);
   }
 
-  console.log(`Cleaned up: ${username} (${deviceId})`);
+  // Schedule cleanup after grace period
+  const timeoutId = setTimeout(() => {
+    console.log(`[CLEANUP] Grace period expired for ${username} (${deviceId})`);
+
+    // Clean up
+    activeUsernames.delete(username);
+    deviceToUsername.delete(deviceId);
+    rateLimits.delete(username);
+    disconnectionTimeouts.delete(deviceId);
+
+    // NOW broadcast departure (after grace period)
+    broadcast(`[${username}] ha salido del chat.`);
+  }, RECONNECT_GRACE_PERIOD);
+
+  // Store timeout info
+  disconnectionTimeouts.set(deviceId, {
+    timeout: timeoutId,
+    username: username,
+    timestamp: Date.now(),
+  });
+}
+
+function cancelScheduledCleanup(deviceId) {
+  if (disconnectionTimeouts.has(deviceId)) {
+    const { timeout, username } = disconnectionTimeouts.get(deviceId);
+    clearTimeout(timeout);
+    disconnectionTimeouts.delete(deviceId);
+    console.log(
+      `[RECONNECT] Cancelled cleanup for ${username} (${deviceId}) - reconnected in time`
+    );
+    return true;
+  }
+  return false;
+}
+
+function immediateCleanup(ws) {
+  const clientData = clients.get(ws);
+  if (!clientData) return null;
+
+  const { username, deviceId } = clientData;
+
+  // Remove from all tracking immediately
+  clients.delete(ws);
+
+  if (deviceId) {
+    // Cancel any pending cleanup
+    if (disconnectionTimeouts.has(deviceId)) {
+      clearTimeout(disconnectionTimeouts.get(deviceId).timeout);
+      disconnectionTimeouts.delete(deviceId);
+    }
+    deviceToUsername.delete(deviceId);
+  }
+
+  if (username) {
+    activeUsernames.delete(username);
+    rateLimits.delete(username);
+  }
+
+  console.log(`[IMMEDIATE] Cleaned up: ${username} (${deviceId})`);
+  return { username, deviceId };
 }
 
 // --- WEBSOCKET HANDLING ---
@@ -276,6 +339,8 @@ wss.on("connection", (ws) => {
   // Send welcome message for terminal clients
   ws.send(`${colors.green}Connected to chat server!${colors.reset}`);
   ws.send(`${colors.cyan}Enter your username: ${colors.reset}`);
+
+  sendToClient(ws, "serverInfo", { startTime: SERVER_START_TIME });
 
   ws.on("message", (message) => {
     try {
@@ -324,39 +389,67 @@ wss.on("connection", (ws) => {
 
           let finalUsername;
           let announceJoin = true;
+          let isQuickReconnect = false;
 
-          if (isReconnect && deviceToUsername.has(deviceId)) {
+          // CHECK 1: Is there a pending disconnection for this device? (Quick reconnect)
+          if (cancelScheduledCleanup(deviceId)) {
+            // User reconnected before grace period ended
             const previousUsername = deviceToUsername.get(deviceId);
-
-            if (isUsernameAvailable(previousUsername)) {
+            if (previousUsername && activeUsernames.has(previousUsername)) {
               finalUsername = previousUsername;
-              announceJoin = false;
-              console.log(`Reconnecting ${deviceId} as ${finalUsername}`);
+              announceJoin = false; // DON'T announce - they never really left
+              isQuickReconnect = true;
+              console.log(
+                `[QUICK RECONNECT] ${finalUsername} (${deviceId}) within grace period`
+              );
             }
           }
 
-          if (!finalUsername) {
-            finalUsername = generateUniqueUsername(requestedName);
-            console.log(`New user: ${finalUsername} (${deviceId})`);
+          // CHECK 2: Does this device have a stored username? (Reconnect after grace period)
+          if (!finalUsername && isReconnect && deviceToUsername.has(deviceId)) {
+            const previousUsername = deviceToUsername.get(deviceId);
+
+            // Reuse previous username if it's available
+            if (isUsernameAvailable(previousUsername)) {
+              finalUsername = previousUsername;
+              announceJoin = true; // DO announce - they were gone long enough
+              console.log(
+                `[RECONNECT] ${finalUsername} (${deviceId}) after grace period`
+              );
+            }
           }
 
+          // CHECK 3: Generate new username for first-time users
+          if (!finalUsername) {
+            finalUsername = generateUniqueUsername(requestedName);
+            announceJoin = true; // DO announce - brand new user
+            console.log(`[NEW USER] ${finalUsername} (${deviceId})`);
+          }
+
+          // Register username
           activeUsernames.add(finalUsername);
           deviceToUsername.set(deviceId, finalUsername);
 
+          // Update client data
           clientData.username = finalUsername;
           clientData.deviceId = deviceId;
           clientData.authenticated = true;
 
+          // Send authentication success
           sendToClient(ws, "authenticated", {
             username: finalUsername,
             serverStartTime: SERVER_START_TIME,
+            isQuickReconnect: isQuickReconnect,
           });
 
+          // Send chat history
           sendToClient(ws, "history", { messages: messageHistory });
 
+          // Announce join ONLY if appropriate
           if (announceJoin) {
             broadcast(`[${finalUsername}] se ha unido al chat.`);
           }
+
           return;
         }
 
@@ -411,7 +504,8 @@ wss.on("connection", (ws) => {
             });
             return;
           }
-          // If message starts with /, only handle if it matches a known command
+
+          // Handle commands
           if (msg.startsWith("/")) {
             if (msg.startsWith("/kick ")) {
               const parts = msg.split(" ");
@@ -437,7 +531,7 @@ wss.on("connection", (ws) => {
               let kicked = false;
               for (const [client, data] of clients.entries()) {
                 if (data.username === targetUser && data.authenticated) {
-                  cleanupClient(client, true);
+                  immediateCleanup(client);
                   client.close();
                   kicked = true;
                   break;
@@ -456,6 +550,7 @@ wss.on("connection", (ws) => {
               }
               return;
             }
+
             if (msg.startsWith("/removeuser ")) {
               const parts = msg.split(" ");
               if (parts.length < 3) {
@@ -480,7 +575,7 @@ wss.on("connection", (ws) => {
               let removed = false;
               for (const [client, data] of clients.entries()) {
                 if (data.username === targetUser && data.authenticated) {
-                  cleanupClient(client, true);
+                  immediateCleanup(client);
                   client.close();
                   removed = true;
                   break;
@@ -499,9 +594,11 @@ wss.on("connection", (ws) => {
               }
               return;
             }
-            // Ignore unknown /commands, do not show anything in chat
+
+            // Ignore unknown /commands
             return;
           }
+
           broadcast(`[${username}]: ${msg}`);
           return;
         }
@@ -559,7 +656,7 @@ wss.on("connection", (ws) => {
             let kicked = false;
             for (const [client, data] of clients.entries()) {
               if (data.username === targetUser && data.authenticated) {
-                cleanupClient(client, true);
+                immediateCleanup(client);
                 client.close();
                 kicked = true;
                 break;
@@ -599,7 +696,7 @@ wss.on("connection", (ws) => {
             let removed = false;
             for (const [client, data] of clients.entries()) {
               if (data.username === targetUser && data.authenticated) {
-                cleanupClient(client, true);
+                immediateCleanup(client);
                 client.close();
                 removed = true;
                 break;
@@ -630,16 +727,21 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
-    cleanupClient(ws, false);
+    // Use grace period for normal disconnections
+    scheduleCleanup(ws);
   });
 
   ws.on("error", (err) => {
     console.error("WebSocket error:", err);
-    cleanupClient(ws, true);
+    // Use grace period even for errors
+    scheduleCleanup(ws);
   });
 });
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Start time: ${new Date(SERVER_START_TIME).toISOString()}`);
+  console.log(
+    `Reconnect grace period: ${RECONNECT_GRACE_PERIOD / 1000} seconds`
+  );
 });
