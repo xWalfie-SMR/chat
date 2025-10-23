@@ -9,6 +9,21 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 8080;
 const ADMIN_PWD = process.env.ADMIN_PWD;
 
+// --- COLOR CONSTANTS ---
+const colors = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  white: '\x1b[37m',
+  gray: '\x1b[90m'
+};
+
 // --- DATA STRUCTURES (SIMPLIFIED) ---
 const clients = new Map(); // ws -> { username, deviceId, authenticated, terminalMode }
 const deviceToUsername = new Map(); // deviceId -> username (for reconnection)
@@ -50,12 +65,57 @@ app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
 // --- HELPER FUNCTIONS ---
 
+function sanitizeUsername(username) {
+  // Remove spaces, special characters, keep only alphanumeric and underscores
+  const sanitized = username.replace(/[^a-zA-Z0-9_]/g, '');
+  
+  // Ensure it's not empty and has reasonable length
+  if (sanitized.length === 0) {
+    return 'anon';
+  }
+  
+  if (sanitized.length > 20) {
+    return sanitized.substring(0, 20);
+  }
+  
+  return sanitized;
+}
+
+function getUserColor(username) {
+  // Simple hash to assign consistent colors to usernames
+  let hash = 0;
+  for (let i = 0; i < username.length; i++) {
+    hash = username.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  const userColors = [colors.red, colors.green, colors.yellow, colors.blue, colors.magenta, colors.cyan];
+  return userColors[Math.abs(hash) % userColors.length];
+}
+
+function formatMessageForTerminal(msg) {
+  // Parse [username] message format and add colors
+  const match = msg.match(/^\[(.+?)\] (.*)$/);
+  if (match) {
+    const username = match[1];
+    const message = match[2];
+    const userColor = getUserColor(username);
+    return `${userColor}[${username}]${colors.reset} ${message}`;
+  }
+  
+  // System messages (join/leave/kick) - use gray
+  if (msg.includes('se ha unido') || msg.includes('ha salido') || msg.includes('expulsado') || msg.includes('ahora es')) {
+    return `${colors.gray}${msg}${colors.reset}`;
+  }
+  
+  return msg;
+}
+
 function isUsernameAvailable(username) {
   return !activeUsernames.has(username);
 }
 
 function generateUniqueUsername(requestedName) {
-  const baseName = (requestedName || "anon").trim();
+  const baseName = sanitizeUsername(requestedName || "anon");
 
   // If exact name is available, use it
   if (isUsernameAvailable(baseName)) {
@@ -87,7 +147,7 @@ function broadcast(msg, timestamp = Date.now(), excludeWs = null) {
     ) {
       try {
         if (clientData.terminalMode) {
-          ws.send(msg);
+          ws.send(formatMessageForTerminal(msg));
         } else {
           ws.send(JSON.stringify({ type: "chat", msg, timestamp }));
         }
@@ -102,21 +162,21 @@ function sendToClient(ws, type, data) {
   if (ws.readyState === WebSocket.OPEN) {
     try {
       const clientData = clients.get(ws);
-      
+
       if (clientData && clientData.terminalMode) {
         // Send formatted text for terminal clients
         if (type === "chat") {
-          ws.send(data.msg);
+          ws.send(formatMessageForTerminal(data.msg));
         } else if (type === "history") {
           if (data.messages.length > 0) {
-            ws.send("\n--- Chat History ---");
-            data.messages.forEach(msg => ws.send(msg.msg));
-            ws.send("--- End of History ---\n");
+            ws.send(`\n${colors.cyan}--- Chat History ---${colors.reset}`);
+            data.messages.forEach((msg) => ws.send(formatMessageForTerminal(msg.msg)));
+            ws.send(`${colors.cyan}--- End of History ---${colors.reset}\n`);
           } else {
-            ws.send("No chat history yet. Start chatting!\n");
+            ws.send(`${colors.cyan}No chat history yet. Start chatting!${colors.reset}\n`);
           }
         } else if (type === "error") {
-          ws.send(`Error: ${data.msg}`);
+          ws.send(`${colors.red}Error: ${data.msg}${colors.reset}`);
         }
         // Don't send serverInfo, prompt, etc. to terminal clients
       } else {
@@ -132,7 +192,7 @@ function sendToClient(ws, type, data) {
 // --- SPAM PREVENTION ---
 const MAX_MESSAGES = 5;
 const TIME_WINDOW = 10000;
-const MUTE_DURATION = 15000;
+const MUTE_DURATION = 5000;
 
 function isSpamming(username) {
   const now = Date.now();
@@ -194,12 +254,12 @@ wss.on("connection", (ws) => {
     username: null,
     deviceId: null,
     authenticated: false,
-    terminalMode: true // Default to terminal mode
+    terminalMode: true, // Default to terminal mode
   });
 
   // Send welcome message for terminal clients
-  ws.send("Connected to chat server!");
-  ws.send("Enter your username: ");
+  ws.send(`${colors.green}Connected to chat server!${colors.reset}`);
+  ws.send(`${colors.cyan}Enter your username: ${colors.reset}`);
 
   ws.on("message", (message) => {
     try {
@@ -214,7 +274,7 @@ wss.on("connection", (ws) => {
       // If JSON is received, switch to JSON mode
       if (messageStr.startsWith("{")) {
         clientData.terminalMode = false;
-        
+
         const data = JSON.parse(messageStr);
 
         // Handle JSON messages (for web clients)
@@ -325,9 +385,9 @@ wss.on("connection", (ws) => {
         if (data.type === "chat") {
           const username = clientData.username;
           const msg = (data.msg || "").trim();
-
           if (!msg) return;
 
+          // Check spam
           if (isSpamming(username)) {
             sendToClient(ws, "chat", {
               msg: "Estás enviando mensajes demasiado rápido. Espera un momento.",
@@ -335,8 +395,9 @@ wss.on("connection", (ws) => {
             });
             return;
           }
-
-          if (msg.startsWith("/kick ")) {
+          
+          // If message starts with /, do not broadcast to chat
+          if (msg.startsWith("/")) {
             const parts = msg.split(" ");
             if (parts.length < 3) {
               sendToClient(ws, "chat", {
@@ -378,21 +439,26 @@ wss.on("connection", (ws) => {
             return;
           }
 
-          broadcast(`[${username}] ${msg}`);
+          broadcast(`[${username}]: ${msg}`);
           return;
         }
       } else {
         // Handle plain text messages (for terminal clients)
-        
+
         // Handle username entry
         if (!clientData.authenticated && !clientData.username && messageStr) {
-          const finalUsername = generateUniqueUsername(messageStr);
-          
+          const sanitizedName = sanitizeUsername(messageStr);
+          const finalUsername = generateUniqueUsername(sanitizedName);
+
+          if (sanitizedName !== messageStr) {
+            ws.send(`${colors.yellow}Username sanitized to: ${finalUsername}${colors.reset}`);
+          }
+
           activeUsernames.add(finalUsername);
           clientData.username = finalUsername;
           clientData.authenticated = true;
-          
-          ws.send(`Welcome ${finalUsername}!`);
+
+          ws.send(`${colors.green}Welcome ${finalUsername}!${colors.reset}`);
           sendToClient(ws, "history", { messages: messageHistory });
           broadcast(`[${finalUsername}] se ha unido al chat.`);
           return;
@@ -401,7 +467,9 @@ wss.on("connection", (ws) => {
         // Handle chat messages
         if (clientData.authenticated && messageStr) {
           if (isSpamming(clientData.username)) {
-            ws.send("Estás enviando mensajes demasiado rápido. Espera un momento.");
+            ws.send(
+              `${colors.yellow}Estás enviando mensajes demasiado rápido. Espera un momento.${colors.reset}`
+            );
             return;
           }
 
@@ -409,15 +477,15 @@ wss.on("connection", (ws) => {
           if (messageStr.startsWith("/kick ")) {
             const parts = messageStr.split(" ");
             if (parts.length < 3) {
-              ws.send("Uso: /kick <usuario> <ADMIN_PWD>");
+              ws.send(`${colors.yellow}Uso: /kick <usuario> <ADMIN_PWD>${colors.reset}`);
               return;
             }
-            
+
             const targetUser = parts[1];
             const pwd = parts[2];
-            
+
             if (pwd !== ADMIN_PWD) {
-              ws.send("Contraseña incorrecta.");
+              ws.send(`${colors.red}Contraseña incorrecta.${colors.reset}`);
               return;
             }
 
@@ -432,9 +500,11 @@ wss.on("connection", (ws) => {
             }
 
             if (kicked) {
-              broadcast(`[${targetUser}] ha sido expulsado por [${clientData.username}].`);
+              broadcast(
+                `[${targetUser}] ha sido expulsado por [${clientData.username}].`
+              );
             } else {
-              ws.send(`Usuario [${targetUser}] no encontrado.`);
+              ws.send(`${colors.red}Usuario [${targetUser}] no encontrado.${colors.reset}`);
             }
             return;
           }
