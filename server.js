@@ -146,7 +146,7 @@ function isSpamming(username) {
   return false;
 }
 
-// Fix: Ensure proper cleanup of old usernames and connections
+// Fix: Ensure proper cleanup and reconnection handling
 function cleanupClient(ws, silent = false) {
   const clientData = clients.get(ws);
   if (!clientData) return null;
@@ -159,7 +159,7 @@ function cleanupClient(ws, silent = false) {
     deviceConnections.delete(deviceId);
   }
   if (username) {
-    usernames.delete(username); // Ensure username is removed
+    usernames.delete(username);
     rateLimits.delete(username);
   }
 
@@ -193,10 +193,8 @@ wss.on("connection", (ws) => {
       if (data.type === "username") {
         const requestedName = data.msg;
         const deviceId = data.deviceId;
-        const oldUsername = data.oldUsername;
-        const isReady = data.ready; // Client signals when ready to join
+        const isReady = data.ready;
 
-        // Validate deviceId
         if (!deviceId) {
           sendToClient(ws, "error", { msg: "Dispositivo no identificado." });
           ws.close();
@@ -210,9 +208,12 @@ wss.on("connection", (ws) => {
           existingWs !== ws &&
           existingWs.readyState === WebSocket.OPEN
         ) {
-          // Silently close the old connection
           const oldData = clients.get(existingWs);
           if (oldData) {
+            // Remove old username from usernames set
+            if (oldData.username) {
+              usernames.delete(oldData.username);
+            }
             cleanupClient(existingWs, true);
           }
           try {
@@ -222,21 +223,13 @@ wss.on("connection", (ws) => {
           }
         }
 
-        // Reuse existing username if the device reconnects
-        const isReconnecting = existingWs && oldUsername;
-        if (isReconnecting) {
-          clientData.username = oldUsername;
-          clientData.deviceId = deviceId;
-          clientData.authenticated = true;
-          deviceConnections.set(deviceId, ws);
-
-          sendToClient(ws, "authenticated", { username: oldUsername });
-          sendToClient(ws, "history", { messages: messageHistory });
-          return;
+        // If deviceId already exists, reuse username and suppress join broadcast
+        let finalName;
+        if (existingWs && clients.get(existingWs)?.username) {
+          finalName = clients.get(existingWs).username;
+        } else {
+          finalName = generateUniqueUsername(requestedName);
         }
-
-        // Generate unique username for new connections
-        const finalName = generateUniqueUsername(requestedName);
 
         // Update client data
         clientData.username = finalName;
@@ -245,15 +238,11 @@ wss.on("connection", (ws) => {
         usernames.add(finalName);
         deviceConnections.set(deviceId, ws);
 
-        // Send authentication confirmation
         sendToClient(ws, "authenticated", { username: finalName });
-
-        // Send history
         sendToClient(ws, "history", { messages: messageHistory });
 
-        // Only broadcast join/change if client is ready (not still showing prompt)
-        // For auto-login, isReady will be true. For manual entry, wait for confirmation.
-        if (isReady !== false) {
+        // Only broadcast join if this is a new username
+        if (!existingWs && isReady !== false) {
           broadcast(`[${finalName}] se ha unido al chat.`);
         }
 
