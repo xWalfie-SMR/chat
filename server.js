@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 8080;
 const ADMIN_PWD = process.env.ADMIN_PWD;
 
 // --- DATA STRUCTURES (SIMPLIFIED) ---
-const clients = new Map(); // ws -> { username, deviceId, authenticated }
+const clients = new Map(); // ws -> { username, deviceId, authenticated, terminalMode }
 const deviceToUsername = new Map(); // deviceId -> username (for reconnection)
 const activeUsernames = new Set(); // Currently active usernames
 const messageHistory = [];
@@ -86,7 +86,11 @@ function broadcast(msg, timestamp = Date.now(), excludeWs = null) {
       ws.readyState === WebSocket.OPEN
     ) {
       try {
-        ws.send(JSON.stringify({ type: "chat", msg, timestamp }));
+        if (clientData.terminalMode) {
+          ws.send(msg);
+        } else {
+          ws.send(JSON.stringify({ type: "chat", msg, timestamp }));
+        }
       } catch (err) {
         console.error("Broadcast error:", err);
       }
@@ -97,7 +101,28 @@ function broadcast(msg, timestamp = Date.now(), excludeWs = null) {
 function sendToClient(ws, type, data) {
   if (ws.readyState === WebSocket.OPEN) {
     try {
-      ws.send(JSON.stringify({ type, ...data }));
+      const clientData = clients.get(ws);
+      
+      if (clientData && clientData.terminalMode) {
+        // Send formatted text for terminal clients
+        if (type === "chat") {
+          ws.send(data.msg);
+        } else if (type === "history") {
+          if (data.messages.length > 0) {
+            ws.send("\n--- Chat History ---");
+            data.messages.forEach(msg => ws.send(msg.msg));
+            ws.send("--- End of History ---\n");
+          } else {
+            ws.send("No chat history yet. Start chatting!\n");
+          }
+        } else if (type === "error") {
+          ws.send(`Error: ${data.msg}`);
+        }
+        // Don't send serverInfo, prompt, etc. to terminal clients
+      } else {
+        // Send JSON for web clients
+        ws.send(JSON.stringify({ type, ...data }));
+      }
     } catch (err) {
       console.error("Send error:", err);
     }
@@ -169,213 +194,255 @@ wss.on("connection", (ws) => {
     username: null,
     deviceId: null,
     authenticated: false,
+    terminalMode: true // Default to terminal mode
   });
 
-  sendToClient(ws, "serverInfo", { startTime: SERVER_START_TIME });
-  sendToClient(ws, "prompt", { msg: "Enter your username:" });
+  // Send welcome message for terminal clients
+  ws.send("Connected to chat server!");
+  ws.send("Enter your username: ");
 
   ws.on("message", (message) => {
     try {
-      const data = JSON.parse(message);
       const clientData = clients.get(ws);
-
       if (!clientData) {
         ws.close();
         return;
       }
 
-      // --- AUTHENTICATION ---
-      if (data.type === "username") {
-        const { msg: requestedName, deviceId } = data;
+      const messageStr = message.toString().trim();
 
-        // Use the same logic as your "auth" handler
-        const finalUsername = generateUniqueUsername(requestedName);
+      // If JSON is received, switch to JSON mode
+      if (messageStr.startsWith("{")) {
+        clientData.terminalMode = false;
+        
+        const data = JSON.parse(messageStr);
 
-        activeUsernames.add(finalUsername);
-        if (deviceId) {
-          deviceToUsername.set(deviceId, finalUsername);
-        }
+        // Handle JSON messages (for web clients)
+        if (data.type === "username") {
+          const { msg: requestedName, deviceId } = data;
 
-        clientData.username = finalUsername;
-        clientData.deviceId = deviceId;
-        clientData.authenticated = true;
+          const finalUsername = generateUniqueUsername(requestedName);
 
-        sendToClient(ws, "history", { messages: messageHistory });
-        broadcast(`[${finalUsername}] se ha unido al chat.`);
+          activeUsernames.add(finalUsername);
+          if (deviceId) {
+            deviceToUsername.set(deviceId, finalUsername);
+          }
 
-        return;
-      }
+          clientData.username = finalUsername;
+          clientData.deviceId = deviceId;
+          clientData.authenticated = true;
 
-      if (data.type === "auth") {
-        const { username: requestedName, deviceId, isReconnect } = data;
-
-        if (!deviceId) {
-          sendToClient(ws, "error", { msg: "Device ID missing" });
-          ws.close();
+          sendToClient(ws, "history", { messages: messageHistory });
+          broadcast(`[${finalUsername}] se ha unido al chat.`);
           return;
         }
 
-        let finalUsername;
-        let announceJoin = true;
+        if (data.type === "auth") {
+          const { username: requestedName, deviceId, isReconnect } = data;
 
-        // Check if this device had a previous username
-        if (isReconnect && deviceToUsername.has(deviceId)) {
-          const previousUsername = deviceToUsername.get(deviceId);
-
-          // Reuse previous username if it's available
-          if (isUsernameAvailable(previousUsername)) {
-            finalUsername = previousUsername;
-            announceJoin = false; // Don't announce reconnections
-            console.log(`Reconnecting ${deviceId} as ${finalUsername}`);
+          if (!deviceId) {
+            sendToClient(ws, "error", { msg: "Device ID missing" });
+            ws.close();
+            return;
           }
+
+          let finalUsername;
+          let announceJoin = true;
+
+          if (isReconnect && deviceToUsername.has(deviceId)) {
+            const previousUsername = deviceToUsername.get(deviceId);
+
+            if (isUsernameAvailable(previousUsername)) {
+              finalUsername = previousUsername;
+              announceJoin = false;
+              console.log(`Reconnecting ${deviceId} as ${finalUsername}`);
+            }
+          }
+
+          if (!finalUsername) {
+            finalUsername = generateUniqueUsername(requestedName);
+            console.log(`New user: ${finalUsername} (${deviceId})`);
+          }
+
+          activeUsernames.add(finalUsername);
+          deviceToUsername.set(deviceId, finalUsername);
+
+          clientData.username = finalUsername;
+          clientData.deviceId = deviceId;
+          clientData.authenticated = true;
+
+          sendToClient(ws, "authenticated", {
+            username: finalUsername,
+            serverStartTime: SERVER_START_TIME,
+          });
+
+          sendToClient(ws, "history", { messages: messageHistory });
+
+          if (announceJoin) {
+            broadcast(`[${finalUsername}] se ha unido al chat.`);
+          }
+          return;
         }
 
-        // Generate new username if needed
-        if (!finalUsername) {
-          finalUsername = generateUniqueUsername(requestedName);
-          console.log(`New user: ${finalUsername} (${deviceId})`);
+        if (data.type === "changeUsername") {
+          if (!clientData.authenticated) {
+            sendToClient(ws, "error", { msg: "Not authenticated" });
+            return;
+          }
+
+          const { newUsername } = data;
+          const oldUsername = clientData.username;
+
+          activeUsernames.delete(oldUsername);
+          const finalUsername = generateUniqueUsername(newUsername);
+          activeUsernames.add(finalUsername);
+          clientData.username = finalUsername;
+
+          if (clientData.deviceId) {
+            deviceToUsername.set(clientData.deviceId, finalUsername);
+          }
+
+          sendToClient(ws, "usernameChanged", {
+            username: finalUsername,
+            oldUsername: oldUsername,
+          });
+
+          broadcast(`[${oldUsername}] ahora es [${finalUsername}]`);
+          console.log(`Username changed: ${oldUsername} -> ${finalUsername}`);
+          return;
         }
 
-        // Register username
-        activeUsernames.add(finalUsername);
-        deviceToUsername.set(deviceId, finalUsername);
-
-        // Update client data
-        clientData.username = finalUsername;
-        clientData.deviceId = deviceId;
-        clientData.authenticated = true;
-
-        // Send success response
-        sendToClient(ws, "authenticated", {
-          username: finalUsername,
-          serverStartTime: SERVER_START_TIME,
-        });
-
-        // Send chat history
-        sendToClient(ws, "history", { messages: messageHistory });
-
-        // Announce join
-        if (announceJoin) {
-          broadcast(`[${finalUsername}] se ha unido al chat.`);
+        if (data.type === "ping") {
+          sendToClient(ws, "pong", { serverStartTime: SERVER_START_TIME });
+          return;
         }
 
-        return;
-      }
-
-      // --- CHANGE USERNAME ---
-      if (data.type === "changeUsername") {
         if (!clientData.authenticated) {
           sendToClient(ws, "error", { msg: "Not authenticated" });
           return;
         }
 
-        const { newUsername } = data;
-        const oldUsername = clientData.username;
+        if (data.type === "chat") {
+          const username = clientData.username;
+          const msg = (data.msg || "").trim();
 
-        // Free old username
-        activeUsernames.delete(oldUsername);
+          if (!msg) return;
 
-        // Generate new unique username
-        const finalUsername = generateUniqueUsername(newUsername);
-
-        // Register new username
-        activeUsernames.add(finalUsername);
-        clientData.username = finalUsername;
-
-        // Update device mapping
-        if (clientData.deviceId) {
-          deviceToUsername.set(clientData.deviceId, finalUsername);
-        }
-
-        // Notify client
-        sendToClient(ws, "usernameChanged", {
-          username: finalUsername,
-          oldUsername: oldUsername,
-        });
-
-        // Broadcast change
-        broadcast(`[${oldUsername}] ahora es [${finalUsername}]`);
-
-        console.log(`Username changed: ${oldUsername} -> ${finalUsername}`);
-        return;
-      }
-
-      // --- PING ---
-      if (data.type === "ping") {
-        sendToClient(ws, "pong", { serverStartTime: SERVER_START_TIME });
-        return;
-      }
-
-      // --- REQUIRE AUTH FOR BELOW ---
-      if (!clientData.authenticated) {
-        sendToClient(ws, "error", { msg: "Not authenticated" });
-        return;
-      }
-
-      // --- CHAT MESSAGE ---
-      if (data.type === "chat") {
-        const username = clientData.username;
-        const msg = (data.msg || "").trim();
-
-        if (!msg) return;
-
-        // Spam check
-        if (isSpamming(username)) {
-          sendToClient(ws, "chat", {
-            msg: "Estás enviando mensajes demasiado rápido. Espera un momento.",
-            timestamp: Date.now(),
-          });
-          return;
-        }
-
-        // --- ADMIN COMMANDS ---
-
-        // /kick user ADMIN_PWD
-        if (msg.startsWith("/kick ")) {
-          const parts = msg.split(" ");
-          if (parts.length < 3) {
+          if (isSpamming(username)) {
             sendToClient(ws, "chat", {
-              msg: "Uso: /kick <usuario> <ADMIN_PWD>",
+              msg: "Estás enviando mensajes demasiado rápido. Espera un momento.",
               timestamp: Date.now(),
             });
             return;
           }
 
-          const targetUser = parts[1];
-          const pwd = parts[2];
-
-          if (pwd !== ADMIN_PWD) {
-            sendToClient(ws, "chat", {
-              msg: "Contraseña incorrecta.",
-              timestamp: Date.now(),
-            });
-            return;
-          }
-
-          let kicked = false;
-          for (const [client, data] of clients.entries()) {
-            if (data.username === targetUser && data.authenticated) {
-              cleanupClient(client, true);
-              client.close();
-              kicked = true;
-              break;
+          if (msg.startsWith("/kick ")) {
+            const parts = msg.split(" ");
+            if (parts.length < 3) {
+              sendToClient(ws, "chat", {
+                msg: "Uso: /kick <usuario> <ADMIN_PWD>",
+                timestamp: Date.now(),
+              });
+              return;
             }
+
+            const targetUser = parts[1];
+            const pwd = parts[2];
+
+            if (pwd !== ADMIN_PWD) {
+              sendToClient(ws, "chat", {
+                msg: "Contraseña incorrecta.",
+                timestamp: Date.now(),
+              });
+              return;
+            }
+
+            let kicked = false;
+            for (const [client, data] of clients.entries()) {
+              if (data.username === targetUser && data.authenticated) {
+                cleanupClient(client, true);
+                client.close();
+                kicked = true;
+                break;
+              }
+            }
+
+            if (kicked) {
+              broadcast(`[${targetUser}] ha sido expulsado por [${username}].`);
+            } else {
+              sendToClient(ws, "chat", {
+                msg: `Usuario [${targetUser}] no encontrado.`,
+                timestamp: Date.now(),
+              });
+            }
+            return;
           }
 
-          if (kicked) {
-            broadcast(`[${targetUser}] ha sido expulsado por [${username}].`);
-          } else {
-            sendToClient(ws, "chat", {
-              msg: `Usuario [${targetUser}] no encontrado.`,
-              timestamp: Date.now(),
-            });
-          }
+          broadcast(`[${username}] ${msg}`);
+          return;
+        }
+      } else {
+        // Handle plain text messages (for terminal clients)
+        
+        // Handle username entry
+        if (!clientData.authenticated && !clientData.username && messageStr) {
+          const finalUsername = generateUniqueUsername(messageStr);
+          
+          activeUsernames.add(finalUsername);
+          clientData.username = finalUsername;
+          clientData.authenticated = true;
+          
+          ws.send(`Welcome ${finalUsername}!`);
+          sendToClient(ws, "history", { messages: messageHistory });
+          broadcast(`[${finalUsername}] se ha unido al chat.`);
           return;
         }
 
-        // Regular chat message
-        broadcast(`[${username}] ${msg}`);
-        return;
+        // Handle chat messages
+        if (clientData.authenticated && messageStr) {
+          if (isSpamming(clientData.username)) {
+            ws.send("Estás enviando mensajes demasiado rápido. Espera un momento.");
+            return;
+          }
+
+          // Handle admin commands
+          if (messageStr.startsWith("/kick ")) {
+            const parts = messageStr.split(" ");
+            if (parts.length < 3) {
+              ws.send("Uso: /kick <usuario> <ADMIN_PWD>");
+              return;
+            }
+            
+            const targetUser = parts[1];
+            const pwd = parts[2];
+            
+            if (pwd !== ADMIN_PWD) {
+              ws.send("Contraseña incorrecta.");
+              return;
+            }
+
+            let kicked = false;
+            for (const [client, data] of clients.entries()) {
+              if (data.username === targetUser && data.authenticated) {
+                cleanupClient(client, true);
+                client.close();
+                kicked = true;
+                break;
+              }
+            }
+
+            if (kicked) {
+              broadcast(`[${targetUser}] ha sido expulsado por [${clientData.username}].`);
+            } else {
+              ws.send(`Usuario [${targetUser}] no encontrado.`);
+            }
+            return;
+          }
+
+          // Regular chat message
+          broadcast(`[${clientData.username}] ${messageStr}`);
+          return;
+        }
       }
     } catch (err) {
       console.error("Message processing error:", err);
