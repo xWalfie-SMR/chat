@@ -46,6 +46,32 @@
       <button id="logout-btn">Cerrar sesión</button>
     </div>
 
+    <!-- Change Username Prompt -->
+    <div id="change-username-prompt" class="modal hidden">
+      <div class="modal-content">
+        <h2>Cambiar Usuario</h2>
+        <p>Escribe tu nuevo nombre de usuario:</p>
+        <input
+          id="new-username-input"
+          type="text"
+          placeholder="Nuevo usuario"
+          autocomplete="off"
+        />
+        <button id="new-username-submit">Cambiar</button>
+        <button id="new-username-cancel" class="button-secondary">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- Logout Confirmation -->
+    <div id="logout-prompt" class="modal hidden">
+      <div class="modal-content">
+        <h2>Cerrar Sesión</h2>
+        <p>¿Estás seguro de que quieres cerrar sesión?</p>
+        <button id="logout-confirm">Cerrar sesión</button>
+        <button id="logout-cancel" class="button-secondary">Cancelar</button>
+      </div>
+    </div>
+
     <div id="chat"></div>
     <!-- Scroll to bottom arrow -->
     <div id="scroll-arrow" class="hidden">&#8595;</div>
@@ -108,6 +134,13 @@
       const changeUsernameBtn = document.getElementById("change-username-btn");
       const logoutBtn = document.getElementById("logout-btn");
       const scrollArrow = document.getElementById("scroll-arrow");
+      const changeUsernamePrompt = document.getElementById("change-username-prompt");
+      const newUsernameInput = document.getElementById("new-username-input");
+      const newUsernameSubmit = document.getElementById("new-username-submit");
+      const newUsernameCancel = document.getElementById("new-username-cancel");
+      const logoutPrompt = document.getElementById("logout-prompt");
+      const logoutConfirm = document.getElementById("logout-confirm");
+      const logoutCancel = document.getElementById("logout-cancel");
 
       // State
       let ws = null;
@@ -364,6 +397,12 @@
         }
       });
 
+      usernameInput.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter") {
+          usernameSubmit.click();
+        }
+      });
+
       input.addEventListener("keydown", (evt) => {
         if (evt.key === "Enter" && isAuthenticated) {
           const msg = input.value.trim();
@@ -381,27 +420,89 @@
         }
       });
 
-      settingsBtn.addEventListener("click", () => {
+      settingsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
         settingsMenu.classList.toggle("hidden");
       });
 
-      changeUsernameBtn.addEventListener("click", () => {
-        const newName = prompt("Nuevo nombre de usuario:", username);
+      // Close settings menu when clicking outside
+      document.addEventListener("click", (e) => {
+        if (!settingsMenu.classList.contains("hidden") && 
+            !settingsMenu.contains(e.target) && 
+            e.target !== settingsBtn) {
+          settingsMenu.classList.add("hidden");
+        }
+      });
 
-        if (newName && newName.trim() !== username) {
+      changeUsernameBtn.addEventListener("click", () => {
+        settingsMenu.classList.add("hidden");
+        changeUsernamePrompt.classList.remove("hidden");
+        newUsernameInput.value = username;
+        newUsernameInput.focus();
+        newUsernameInput.select();
+      });
+
+      newUsernameSubmit.addEventListener("click", () => {
+        const newName = newUsernameInput.value.trim();
+
+        if (newName && newName !== username) {
           ws.send(
             JSON.stringify({
               type: "changeUsername",
-              newUsername: newName.trim(),
+              newUsername: newName,
             })
           );
+          changeUsernamePrompt.classList.add("hidden");
+        }
+      });
+
+      newUsernameCancel.addEventListener("click", () => {
+        changeUsernamePrompt.classList.add("hidden");
+      });
+
+      newUsernameInput.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter") {
+          newUsernameSubmit.click();
+        } else if (evt.key === "Escape") {
+          changeUsernamePrompt.classList.add("hidden");
         }
       });
 
       logoutBtn.addEventListener("click", () => {
-        if (confirm("¿Estás seguro de que quieres cerrar sesión?")) {
-          localStorage.removeItem("chatUsername");
-          location.reload();
+        settingsMenu.classList.add("hidden");
+        logoutPrompt.classList.remove("hidden");
+      });
+
+      logoutConfirm.addEventListener("click", () => {
+        localStorage.removeItem("chatUsername");
+        location.reload();
+      });
+
+      logoutCancel.addEventListener("click", () => {
+        logoutPrompt.classList.add("hidden");
+      });
+
+      // Close modals when clicking outside
+      changeUsernamePrompt.addEventListener("click", (e) => {
+        if (e.target === changeUsernamePrompt) {
+          changeUsernamePrompt.classList.add("hidden");
+        }
+      });
+
+      logoutPrompt.addEventListener("click", (e) => {
+        if (e.target === logoutPrompt) {
+          logoutPrompt.classList.add("hidden");
+        }
+      });
+
+      // Global escape key handler to close modals
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          if (!logoutPrompt.classList.contains("hidden")) {
+            logoutPrompt.classList.add("hidden");
+          } else if (!changeUsernamePrompt.classList.contains("hidden")) {
+            changeUsernamePrompt.classList.add("hidden");
+          }
         }
       });
 
