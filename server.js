@@ -862,11 +862,3 @@ server.listen(PORT, () => {
     `Reconnect grace period: ${RECONNECT_GRACE_PERIOD / 1000} seconds`
   );
 });
-
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Start time: ${new Date(SERVER_START_TIME).toISOString()}`);
-  console.log(
-    `Reconnect grace period: ${RECONNECT_GRACE_PERIOD / 1000} seconds`
-  );
-});
