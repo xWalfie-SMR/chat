@@ -33,8 +33,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// --- Static files + disable caching ---
-app.use(express.static("docs"));
+// --- Disable caching ---
 app.use((req, res, next) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
@@ -42,6 +41,9 @@ app.use((req, res, next) => {
   res.setHeader("Surrogate-Control", "no-store");
   next();
 });
+
+// --- Static files ---
+app.use(express.static("docs"));
 
 // --- Health check endpoint ---
 app.get("/healthz", (req, res) => res.status(200).send("OK"));
