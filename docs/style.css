@@ -215,6 +215,38 @@ body {
   background: #cc7a00;
 }
 
+/* Login success notification - green style */
+.notification-success {
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 2px solid #4caf50;
+  background: #1a3a1a;
+  min-width: 300px;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translate(-50%, -100%);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+.notification-success .notification-content p {
+  color: #4caf50;
+  margin: 0;
+}
+
+.notification-success #login-username {
+  color: #fff;
+  font-weight: bold;
+}
+
 /* Settings button */
 .settings-button {
   width: 45px;

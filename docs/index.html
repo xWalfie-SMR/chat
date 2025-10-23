@@ -78,9 +78,19 @@
       console.log('Using existing deviceId:', deviceId);
     }
 
-    // Retrieve saved username
-    const savedUsername = localStorage.getItem("chatUsername");
-    console.log('Saved username:', savedUsername || 'none');
+    // Retrieve saved username - check every time we need it
+    function getSavedUsername() {
+      return localStorage.getItem("chatUsername");
+    }
+
+    const initialUsername = getSavedUsername();
+    console.log('Initial saved username:', initialUsername);
+
+    // If no saved username, show prompt immediately
+    if (!initialUsername) {
+      usernamePrompt.classList.remove("hidden");
+      usernameInput.focus();
+    }
 
     function getUserColor(name) {
       if (!userColors[name]) {
@@ -131,7 +141,12 @@
       const name = usernameInput.value.trim();
       const oldUsername = sessionStorage.getItem("oldUsername");
 
-      const payload = { type: "username", msg: name || "anon", deviceId: deviceId };
+      const payload = { 
+        type: "username", 
+        msg: name || "anon", 
+        deviceId: deviceId,
+        ready: true // Signal that user manually entered and is ready to join
+      };
       if (oldUsername) {
         payload.oldUsername = oldUsername;
         sessionStorage.removeItem("oldUsername");
@@ -203,7 +218,21 @@
     ws.onopen = () => {
       console.log("✓ Connected to server successfully");
       connectionReady = true;
-      addMessage('Conectado al servidor.', Date.now());
+      
+      // Check for saved username and auto-authenticate
+      const savedUsername = getSavedUsername();
+      console.log('On connect - saved username:', savedUsername, 'isAuthenticated:', isAuthenticated);
+      
+      if (savedUsername && !isAuthenticated) {
+        const oldUsername = sessionStorage.getItem("oldUsername");
+        const payload = { type: "username", msg: savedUsername, deviceId: deviceId };
+        if (oldUsername) {
+          payload.oldUsername = oldUsername;
+          sessionStorage.removeItem("oldUsername");
+        }
+        console.log('→ Auto-sending username on connect:', payload);
+        ws.send(JSON.stringify(payload));
+      }
     };
 
     // WebSocket message handling
@@ -212,20 +241,25 @@
       const data = JSON.parse(evt.data);
 
       if (data.type === "prompt") {
-        console.log('Received prompt, saved username:', savedUsername);
-        // Auto-join with saved username if available
-        if (savedUsername && !isAuthenticated) {
+        // Server is asking for username - check if we have one saved
+        const savedUsername = getSavedUsername();
+        console.log('Received prompt, saved username:', savedUsername, 'isAuthenticated:', isAuthenticated);
+        
+        // Only show prompt if no saved username and not authenticated
+        if (!savedUsername && !isAuthenticated) {
+          usernamePrompt.classList.remove("hidden");
+          usernameInput.focus();
+        }
+        // If we have saved username but somehow didn't send it yet, send now
+        else if (savedUsername && !isAuthenticated && connectionReady) {
           const oldUsername = sessionStorage.getItem("oldUsername");
           const payload = { type: "username", msg: savedUsername, deviceId: deviceId };
           if (oldUsername) {
             payload.oldUsername = oldUsername;
             sessionStorage.removeItem("oldUsername");
           }
-          console.log('→ Auto-sending username:', payload);
+          console.log('→ Sending username from prompt handler:', payload);
           ws.send(JSON.stringify(payload));
-        } else if (!isAuthenticated) {
-          usernamePrompt.classList.remove("hidden");
-          usernameInput.focus();
         }
       }
 
@@ -247,7 +281,16 @@
         isAuthenticated = true;
         input.disabled = false;
         input.focus();
-        localStorage.setItem("chatUsername", username);
+        
+        // Only save username if it's not an anon variant
+        if (!data.username.toLowerCase().startsWith('anon')) {
+          localStorage.setItem("chatUsername", username);
+          console.log('✓ Saved username to localStorage:', username);
+        } else {
+          // Clear any saved username if we're anon
+          localStorage.removeItem("chatUsername");
+          console.log('✓ Anon user - not saving username');
+        }
       }
 
       else if (data.type === "history") {
