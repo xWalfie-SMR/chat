@@ -1,4 +1,4 @@
-const API_URL = window.location.origin;
+const API_URL = "https://chat-cp1p.onrender.com";
 let authToken = null;
 let statsInterval = null;
 
