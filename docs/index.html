@@ -14,8 +14,16 @@
     <div class="modal-content">
       <h2>Bienvenido al Chat</h2>
       <p>Escribe tu nombre de usuario:</p>
-      <input id="username-input" type="text" placeholder="Usuario" autocomplete="off" autofocus />
+      <input id="username-input" type="text" placeholder="Usuario (sin espacios)" autocomplete="off" autofocus />
       <button id="username-submit">Entrar</button>
+      <p id="username-error" class="error-text hidden">Los nombres no pueden contener espacios</p>
+    </div>
+  </div>
+
+  <!-- Login Success Notification -->
+  <div id="login-notification" class="notification notification-success hidden">
+    <div class="notification-content">
+      <p>✓ Conectado como <span id="login-username"></span></p>
     </div>
   </div>
 
@@ -54,6 +62,9 @@
     const usernamePrompt = document.getElementById("username-prompt");
     const usernameInput = document.getElementById("username-input");
     const usernameSubmit = document.getElementById("username-submit");
+    const usernameError = document.getElementById("username-error");
+    const loginNotification = document.getElementById("login-notification");
+    const loginUsername = document.getElementById("login-username");
     const reloadNotification = document.getElementById("reload-notification");
     const reloadCountdown = document.getElementById("reload-countdown");
     const reloadNowBtn = document.getElementById("reload-now");
@@ -65,11 +76,14 @@
     // State
     let ws = null;
     let username = "";
+    let myColor = "";
     let isAuthenticated = false;
     let serverStartTime = null;
     let reconnectAttempt = 0;
     let reconnectTimer = null;
     let isChangingUsername = false;
+    let isLoggingOut = false;
+    let isKicked = false;
     const userColors = {};
 
     // Generate or retrieve deviceId
@@ -81,12 +95,12 @@
     }
 
     // Helper functions
+    function validateUsername(name) {
+      return name && !name.includes(' ') && name.length <= 20;
+    }
+
     function getUserColor(name) {
-      if (!userColors[name]) {
-        const index = Object.keys(userColors).length % 6;
-        userColors[name] = `usercolor${index}`;
-      }
-      return userColors[name];
+      return userColors[name] || 'usercolor0';
     }
 
     function formatTime(timestamp) {
@@ -102,7 +116,12 @@
       return div.innerHTML;
     }
 
-    function addMessage(msg, timestamp) {
+    function addMessage(msg, timestamp, colors) {
+      // Update color mappings if provided
+      if (colors) {
+        Object.assign(userColors, colors);
+      }
+
       const nameMatch = msg.match(/^\[([^\]]+)\]/);
       let content = msg;
       let nameClass = "";
@@ -111,12 +130,30 @@
       if (nameMatch) {
         const name = nameMatch[1];
         content = msg.replace(/^\[[^\]]+\]/, "");
-        nameClass = getUserColor(name);
+        
+        // Special styling for ADMIN messages
+        if (name === "ADMIN") {
+          nameClass = "admin-message";
+        } else {
+          nameClass = getUserColor(name);
+        }
+        
         chat.innerHTML += `<div class="message"><span class="username ${nameClass}">[${name}]</span><span class="message-content">${escapeHtml(content)}</span><span class="timestamp">${timeStr}</span></div>`;
       } else {
         chat.innerHTML += `<div class="message"><span class="message-content">${escapeHtml(msg)}</span><span class="timestamp">${timeStr}</span></div>`;
       }
       chat.scrollTop = chat.scrollHeight;
+    }
+
+    // Login success notification
+    function showLoginNotification(username) {
+      loginUsername.textContent = username;
+      loginNotification.classList.remove("hidden");
+      
+      // Auto-hide after 3 seconds
+      setTimeout(() => {
+        loginNotification.classList.add("hidden");
+      }, 3000);
     }
 
     // Reload notification
@@ -143,18 +180,21 @@
     // WebSocket connection management
     function connect() {
       if (ws && ws.readyState === WebSocket.OPEN) return;
+      if (isKicked) {
+        console.log("Cannot reconnect - user was kicked");
+        return;
+      }
 
       console.log('Connecting to:', WEBSOCKET_SERVER);
       ws = new WebSocket(WEBSOCKET_SERVER);
 
       ws.onopen = () => {
         console.log("✓ Connected to server");
-        reconnectAttempt = 0;
         
         // Get saved username
         const savedUsername = localStorage.getItem("chatUsername");
         
-        if (savedUsername && !isChangingUsername) {
+        if (savedUsername && !isChangingUsername && !isLoggingOut) {
           // Auto-authenticate with saved username
           console.log('Auto-authenticating with saved username:', savedUsername);
           ws.send(JSON.stringify({ 
@@ -163,11 +203,16 @@
             deviceId: deviceId,
             isReconnect: reconnectAttempt > 0
           }));
-        } else if (!isAuthenticated) {
+        } else if (!isAuthenticated && !isLoggingOut) {
           // Show username prompt
           usernamePrompt.classList.remove("hidden");
           usernameInput.focus();
         }
+
+        if (reconnectAttempt > 0) {
+          addMessage("✓ Reconectado al servidor", Date.now());
+        }
+        reconnectAttempt = 0;
       };
 
       ws.onmessage = (evt) => {
@@ -188,11 +233,22 @@
             break;
 
           case "chat":
-            addMessage(data.msg, data.timestamp || Date.now());
+            addMessage(data.msg, data.timestamp || Date.now(), data.colors);
             break;
 
           case "usernameChanged":
             handleUsernameChanged(data);
+            break;
+
+          case "kicked":
+            handleKicked(data);
+            break;
+
+          case "invalidUsername":
+            usernameError.classList.remove("hidden");
+            setTimeout(() => {
+              usernameError.classList.add("hidden");
+            }, 3000);
             break;
 
           case "pong":
@@ -215,6 +271,12 @@
         isAuthenticated = false;
         input.disabled = true;
         
+        // Don't auto-reconnect if logging out or kicked
+        if (isLoggingOut || isKicked) {
+          isLoggingOut = false;
+          return;
+        }
+
         // Auto-reconnect
         if (!reconnectTimer) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 30000);
@@ -249,8 +311,15 @@
     }
 
     function handleAuthenticated(data) {
-      console.log('✓ Authenticated as:', data.username);
+      console.log('✓ Authenticated as:', data.username, 'color:', data.color);
       username = data.username;
+      myColor = data.color;
+      
+      // Store my color in the mapping
+      if (data.color) {
+        userColors[username] = data.color;
+      }
+      
       isAuthenticated = true;
       isChangingUsername = false;
       input.disabled = false;
@@ -258,6 +327,9 @@
       
       // Hide username prompt if visible
       usernamePrompt.classList.add("hidden");
+      
+      // Show login notification
+      showLoginNotification(username);
       
       // Save username if not anonymous
       if (!username.toLowerCase().startsWith('anon')) {
@@ -272,14 +344,30 @@
 
     function handleHistory(data) {
       console.log('Loading history:', data.messages.length, 'messages');
+      
+      // Load color mappings first
+      if (data.colors) {
+        Object.assign(userColors, data.colors);
+      }
+      
+      // Then load messages
       data.messages.forEach((msgData) => {
-        addMessage(msgData.msg, msgData.timestamp);
+        addMessage(msgData.msg, msgData.timestamp, msgData.colors);
       });
     }
 
     function handleUsernameChanged(data) {
       console.log('Username changed from', data.oldUsername, 'to', data.username);
+      
+      // Keep the same color!
+      if (data.color) {
+        userColors[data.username] = data.color;
+        // Remove old username color mapping
+        delete userColors[data.oldUsername];
+      }
+      
       username = data.username;
+      myColor = data.color;
       isChangingUsername = false;
       
       // Save new username
@@ -287,7 +375,26 @@
         localStorage.setItem("chatUsername", username);
       }
       
-      addMessage(`Tu nombre ha cambiado a: ${username}`, Date.now());
+      // Show notification
+      showLoginNotification(username);
+    }
+
+    function handleKicked(data) {
+      isKicked = true;
+      localStorage.removeItem("chatUsername");
+      addMessage(`⚠️ ${data.reason}`, Date.now());
+      
+      // Close connection
+      if (ws) {
+        ws.close();
+      }
+      
+      // Show reload prompt after 3 seconds
+      setTimeout(() => {
+        if (confirm("Has sido expulsado del chat. ¿Deseas recargar la página?")) {
+          location.reload();
+        }
+      }, 3000);
     }
 
     function handlePong(data) {
@@ -300,6 +407,16 @@
     // UI Event Handlers
     function submitUsername() {
       const name = usernameInput.value.trim();
+      
+      // Validate username
+      if (name && !validateUsername(name)) {
+        usernameError.classList.remove("hidden");
+        setTimeout(() => {
+          usernameError.classList.add("hidden");
+        }, 3000);
+        return;
+      }
+      
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         console.log('WebSocket not ready');
         return;
@@ -320,6 +437,15 @@
       if (e.key === "Enter") submitUsername();
     });
 
+    // Validate username as user types
+    usernameInput.addEventListener("input", (e) => {
+      if (e.target.value.includes(' ')) {
+        usernameError.classList.remove("hidden");
+      } else {
+        usernameError.classList.add("hidden");
+      }
+    });
+
     // Settings menu
     settingsBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -333,19 +459,32 @@
     });
 
     changeUsernameBtn.addEventListener("click", () => {
-      const newName = prompt("Ingresa tu nuevo nombre de usuario:", username);
-      if (newName && newName.trim() && ws && ws.readyState === WebSocket.OPEN) {
-        isChangingUsername = true;
-        ws.send(JSON.stringify({ 
-          type: "changeUsername", 
-          newUsername: newName.trim()
-        }));
+      let newName = prompt("Ingresa tu nuevo nombre de usuario (sin espacios):", username);
+      
+      if (newName) {
+        newName = newName.trim();
+        if (!validateUsername(newName)) {
+          alert("Nombre inválido. No se permiten espacios y máximo 20 caracteres.");
+          return;
+        }
+        
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          isChangingUsername = true;
+          ws.send(JSON.stringify({ 
+            type: "changeUsername", 
+            newUsername: newName
+          }));
+        }
       }
       settingsMenu.classList.add("hidden");
     });
 
     logoutBtn.addEventListener("click", () => {
+      isLoggingOut = true;
       localStorage.removeItem("chatUsername");
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "logout" }));
+      }
       if (ws) ws.close();
       setTimeout(() => location.reload(), 100);
     });
