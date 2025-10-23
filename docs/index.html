@@ -47,6 +47,8 @@
     </div>
 
     <div id="chat"></div>
+    <!-- Scroll to bottom arrow -->
+    <div id="scroll-arrow" class="hidden">&#8595;</div>
 
     <!-- Input container with settings button -->
     <div id="input-container">
@@ -57,9 +59,37 @@
         disabled
       />
       <button id="settings-btn" class="settings-button" title="Configuración">
-        ⚙️
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7z"
+            fill="#888"
+          />
+          <path
+            d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.65l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.03 7.03 0 0 0-1.69-.98l-.38-2.65A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.5.43l-.38 2.65a7.03 7.03 0 0 0-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.65l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65a.5.5 0 0 0-.12.65l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.53.38 1.1.7 1.69.98l.38 2.65A.5.5 0 0 0 10 22h4a.5.5 0 0 0 .5-.43l.38-2.65c.59-.28 1.16-.6 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.65l-2.11-1.65z"
+            stroke="#888"
+            stroke-width="2"
+            fill="none"
+          />
+        </svg>
       </button>
     </div>
+
+    <style>
+      /* Hide scrollbar for chat */
+      #chat {
+        scrollbar-width: none; /* Firefox */
+        -ms-overflow-style: none; /* IE 10+ */
+      }
+      #chat::-webkit-scrollbar {
+        display: none; /* Chrome, Safari, Opera */
+      }
+    </style>
 
     <script>
       const WEBSOCKET_SERVER = "wss://chat-cp1p.onrender.com";
@@ -77,6 +107,7 @@
       const settingsMenu = document.getElementById("settings-menu");
       const changeUsernameBtn = document.getElementById("change-username-btn");
       const logoutBtn = document.getElementById("logout-btn");
+      const scrollArrow = document.getElementById("scroll-arrow");
 
       // State
       let ws = null;
@@ -144,6 +175,20 @@
         }
 
         chat.scrollTop = chat.scrollHeight;
+        updateScrollArrow();
+      }
+
+      // Show/hide scroll arrow if not at bottom
+      function updateScrollArrow() {
+        // Only show arrow if chat is scrollable and not at bottom
+        if (
+          chat.scrollHeight - chat.clientHeight > 2 &&
+          chat.scrollTop + chat.clientHeight < chat.scrollHeight - 2
+        ) {
+          scrollArrow.classList.remove("hidden");
+        } else {
+          scrollArrow.classList.add("hidden");
+        }
       }
 
       function showReloadNotification() {
@@ -304,68 +349,31 @@
 
         localStorage.setItem("chatUsername", username);
 
-        if (data.serverStartTime) {
-          handleServerInfo({ startTime: data.serverStartTime });
+        if (data.history && data.history.length > 0) {
+          data.history.forEach((m) => addMessage(m.msg, m.timestamp));
         }
       }
 
-      // --- UI EVENT HANDLERS ---
+      // --- EVENT LISTENERS ---
 
       usernameSubmit.addEventListener("click", () => {
-        const name = usernameInput.value.trim() || "anon";
-        authenticate(name, false);
-        usernamePrompt.classList.add("hidden");
-      });
+        const name = usernameInput.value.trim();
 
-      usernameInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          usernameSubmit.click();
+        if (name) {
+          authenticate(name);
         }
       });
 
-      settingsBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        settingsMenu.classList.toggle("hidden");
-      });
+      input.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter" && isAuthenticated) {
+          const msg = input.value.trim();
 
-      document.addEventListener("click", (e) => {
-        if (!settingsMenu.contains(e.target) && e.target !== settingsBtn) {
-          settingsMenu.classList.add("hidden");
-        }
-      });
-
-      changeUsernameBtn.addEventListener("click", () => {
-        const newName = prompt("Nuevo nombre de usuario:", username);
-        if (
-          newName &&
-          newName.trim() &&
-          ws &&
-          ws.readyState === WebSocket.OPEN
-        ) {
-          ws.send(
-            JSON.stringify({
-              type: "changeUsername",
-              newUsername: newName.trim(),
-            })
-          );
-        }
-        settingsMenu.classList.add("hidden");
-      });
-
-      logoutBtn.addEventListener("click", () => {
-        localStorage.removeItem("chatUsername");
-        localStorage.removeItem("serverStartTime");
-        if (ws) ws.close();
-        location.reload();
-      });
-
-      input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && input.value.trim()) {
-          if (isAuthenticated && ws && ws.readyState === WebSocket.OPEN) {
+          if (msg) {
             ws.send(
               JSON.stringify({
                 type: "chat",
-                msg: input.value,
+                msg: msg,
+                timestamp: Date.now(),
               })
             );
             input.value = "";
@@ -373,15 +381,50 @@
         }
       });
 
-      // Periodic ping
-      setInterval(() => {
-        if (ws && ws.readyState === WebSocket.OPEN && serverStartTime) {
-          ws.send(JSON.stringify({ type: "ping" }));
-        }
-      }, 30000);
+      settingsBtn.addEventListener("click", () => {
+        settingsMenu.classList.toggle("hidden");
+      });
 
-      // Start
+      changeUsernameBtn.addEventListener("click", () => {
+        const newName = prompt("Nuevo nombre de usuario:", username);
+
+        if (newName && newName.trim() !== username) {
+          ws.send(
+            JSON.stringify({
+              type: "changeUsername",
+              newUsername: newName.trim(),
+            })
+          );
+        }
+      });
+
+      logoutBtn.addEventListener("click", () => {
+        if (confirm("¿Estás seguro de que quieres cerrar sesión?")) {
+          localStorage.removeItem("chatUsername");
+          location.reload();
+        }
+      });
+
+      // Initial connection
       connect();
+
+      scrollArrow.innerHTML = "↓";
+      function updateScrollArrow() {
+        // Only show arrow if chat is scrollable and not at bottom
+        if (
+          chat.scrollHeight - chat.clientHeight > 2 &&
+          chat.scrollTop + chat.clientHeight < chat.scrollHeight - 2
+        ) {
+          scrollArrow.classList.remove("hidden");
+        } else {
+          scrollArrow.classList.add("hidden");
+        }
+      }
+      chat.addEventListener("scroll", updateScrollArrow);
+      scrollArrow.addEventListener("click", () => {
+        chat.scrollTo({ top: chat.scrollHeight, behavior: "smooth" });
+        updateScrollArrow();
+      });
     </script>
   </body>
 </html>

@@ -63,7 +63,13 @@ app.use((req, res, next) => {
   next();
 });
 
+// --- JSON parsing ---
+app.use(express.json());
+
+// --- STATIC FILES ---
 app.use(express.static("docs"));
+
+// --- HEALTH CHECK ---
 app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
 // --- HELPER FUNCTIONS ---
@@ -736,6 +742,125 @@ wss.on("connection", (ws) => {
     // Use grace period even for errors
     scheduleCleanup(ws);
   });
+});
+
+// --- ADMIN AUTHENTICATION ---
+const adminTokens = new Set();
+
+function generateToken() {
+  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+}
+
+function verifyAdminToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const token = authHeader.substring(7);
+  if (!adminTokens.has(token)) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+
+  next();
+}
+
+// Admin login
+app.post("/api/admin/login", (req, res) => {
+  const { password } = req.body;
+
+  if (password !== ADMIN_PWD) {
+    return res.json({ success: false, error: "Invalid password" });
+  }
+
+  const token = generateToken();
+  adminTokens.add(token);
+
+  res.json({ success: true, token });
+});
+
+// Verify token
+app.get("/api/admin/verify", verifyAdminToken, (req, res) => {
+  res.json({ valid: true });
+});
+
+// Admin stats (protected)
+app.get("/api/admin/stats", verifyAdminToken, (req, res) => {
+  const users = [];
+  for (const [ws, data] of clients.entries()) {
+    if (data.authenticated) {
+      users.push({
+        username: data.username,
+        deviceId: data.deviceId,
+        terminalMode: data.terminalMode,
+      });
+    }
+  }
+
+  res.json({
+    userCount: activeUsernames.size,
+    messageCount: messageHistory.length,
+    uptime: Date.now() - SERVER_START_TIME,
+    users: users,
+    messages: messageHistory,
+  });
+});
+
+// Kick user (protected)
+app.post("/api/admin/kick", verifyAdminToken, (req, res) => {
+  const { username } = req.body;
+
+  let kicked = false;
+  for (const [client, data] of clients.entries()) {
+    if (data.username === username && data.authenticated) {
+      immediateCleanup(client);
+      client.close();
+      kicked = true;
+      broadcast(`[${username}] ha sido expulsado por el administrador.`);
+      break;
+    }
+  }
+
+  res.json({ success: kicked, error: kicked ? null : "User not found" });
+});
+
+// Kick all users (protected)
+app.post("/api/admin/kick-all", verifyAdminToken, (req, res) => {
+  let count = 0;
+  for (const [client, data] of clients.entries()) {
+    if (data.authenticated) {
+      immediateCleanup(client);
+      client.close();
+      count++;
+    }
+  }
+
+  broadcast(`Todos los usuarios han sido expulsados por el administrador.`);
+  res.json({ success: true, count });
+});
+
+// Clear history (protected)
+app.post("/api/admin/clear-history", verifyAdminToken, (req, res) => {
+  messageHistory.length = 0;
+  broadcast(`[SISTEMA] El historial del chat ha sido limpiado.`);
+  res.json({ success: true });
+});
+
+// Broadcast message (protected)
+app.post("/api/admin/broadcast", verifyAdminToken, (req, res) => {
+  const { message } = req.body;
+
+  broadcast(`[ADMIN] ${message}`);
+  res.json({ success: true });
+});
+
+// --- START SERVER ---
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Start time: ${new Date(SERVER_START_TIME).toISOString()}`);
+  console.log(
+    `Reconnect grace period: ${RECONNECT_GRACE_PERIOD / 1000} seconds`
+  );
 });
 
 server.listen(PORT, () => {

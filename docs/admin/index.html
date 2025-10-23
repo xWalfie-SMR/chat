@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Chat Admin Panel</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="login-screen" class="login-screen">
+    <div class="login-box">
+      <h1>Admin Login</h1>
+      <input type="password" id="login-pwd" placeholder="Admin Password" autofocus />
+      <button onclick="login()">Login</button>
+      <div id="login-error" class="login-error"></div>
+    </div>
+  </div>
+
+  <!-- Admin Panel (hidden until authenticated) -->
+  <div id="admin-panel" class="container hidden">
+    <div class="header">
+      <h1>Chat Admin Panel</h1>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+    
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-value" id="user-count">0</div>
+        <div class="stat-label">Active Users</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="message-count">0</div>
+        <div class="stat-label">Messages in History</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="uptime">0m</div>
+        <div class="stat-label">Server Uptime</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Admin Actions</h2>
+      <div class="controls">
+        <button class="clear-all" onclick="clearAllUsers()">Kick All Users</button>
+        <button class="clear-history" onclick="clearHistory()">Clear Chat History</button>
+      </div>
+      <div class="controls">
+        <input type="text" id="broadcast-msg" placeholder="Broadcast message..." style="flex: 1;" />
+        <button class="broadcast" onclick="broadcastMessage()">Send Broadcast</button>
+      </div>
+      <div id="action-result"></div>
+    </div>
+
+    <div class="section">
+      <h2>Active Users</h2>
+      <div class="user-list" id="user-list">
+        <p style="color: #888;">Loading...</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Recent Messages (Last 20)</h2>
+      <div id="message-list" style="max-height: 400px; overflow-y: auto;">
+        <p style="color: #888;">Loading...</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
