@@ -156,6 +156,19 @@ body {
   background: #3d8b40;
 }
 
+.modal-content .button-secondary {
+  background: #333;
+  margin-top: 10px;
+}
+
+.modal-content .button-secondary:hover {
+  background: #444;
+}
+
+.modal-content .button-secondary:active {
+  background: #555;
+}
+
 /* Notification styles for reload prompt */
 .notification {
   position: fixed;
