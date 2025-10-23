@@ -1,378 +1,433 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="UTF-8">
-  <title>Chat SMR</title>
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <!-- Username Prompt Overlay -->
-  <div id="username-prompt" class="modal hidden">
-    <div class="modal-content">
-      <h2>Bienvenido al Chat</h2>
-      <p>Escribe tu nombre de usuario:</p>
-      <input id="username-input" type="text" placeholder="Usuario" autocomplete="off" autofocus />
-      <button id="username-submit">Entrar</button>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Chat SMR</title>
+    <meta
+      http-equiv="Cache-Control"
+      content="no-cache, no-store, must-revalidate"
+    />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Username Prompt Overlay -->
+    <div id="username-prompt" class="modal hidden">
+      <div class="modal-content">
+        <h2>Bienvenido al Chat</h2>
+        <p>Escribe tu nombre de usuario:</p>
+        <input
+          id="username-input"
+          type="text"
+          placeholder="Usuario"
+          autocomplete="off"
+          autofocus
+        />
+        <button id="username-submit">Entrar</button>
+      </div>
     </div>
-  </div>
 
-  <!-- Reload Notification -->
-  <div id="reload-notification" class="notification hidden">
-    <div class="notification-content">
-      <p>¡El servidor se ha actualizado!</p>
-      <p>La página se recargará en <span id="reload-countdown">5</span> segundos...</p>
-      <button id="reload-now">Recargar ahora</button>
+    <!-- Reload Notification -->
+    <div id="reload-notification" class="notification hidden">
+      <div class="notification-content">
+        <p>¡El servidor se ha actualizado!</p>
+        <p>
+          La página se recargará en
+          <span id="reload-countdown">5</span> segundos...
+        </p>
+        <button id="reload-now">Recargar ahora</button>
+      </div>
     </div>
-  </div>
 
-  <!-- Settings Menu -->
-  <div id="settings-menu" class="settings-menu hidden">
-    <button id="change-username-btn">Cambiar usuario</button>
-    <button id="logout-btn">Cerrar sesión</button>
-  </div>
+    <!-- Settings Menu -->
+    <div id="settings-menu" class="settings-menu hidden">
+      <button id="change-username-btn">Cambiar usuario</button>
+      <button id="logout-btn">Cerrar sesión</button>
+    </div>
 
-  <div id="chat"></div>
+    <div id="chat"></div>
 
-  <!-- Input container with settings button -->
-  <div id="input-container">
-    <input id="input" placeholder="Escribe tu mensaje y presiona Enter..." autocomplete="off" disabled />
-    <button id="settings-btn" class="settings-button" title="Configuración">⚙️</button>
-  </div>
+    <!-- Input container with settings button -->
+    <div id="input-container">
+      <input
+        id="input"
+        placeholder="Escribe tu mensaje y presiona Enter..."
+        autocomplete="off"
+        disabled
+      />
+      <button id="settings-btn" class="settings-button" title="Configuración">
+        ⚙️
+      </button>
+    </div>
 
-  <script>
-    // HARDCODED WebSocket server URL
-    const WEBSOCKET_SERVER = 'wss://chat-cp1p.onrender.com';
-    
-    console.log('=== CHAT CLIENT STARTING ===');
-    
-    // Elements
-    const chat = document.getElementById("chat");
-    const input = document.getElementById("input");
-    const usernamePrompt = document.getElementById("username-prompt");
-    const usernameInput = document.getElementById("username-input");
-    const usernameSubmit = document.getElementById("username-submit");
-    const reloadNotification = document.getElementById("reload-notification");
-    const reloadCountdown = document.getElementById("reload-countdown");
-    const reloadNowBtn = document.getElementById("reload-now");
-    const settingsBtn = document.getElementById("settings-btn");
-    const settingsMenu = document.getElementById("settings-menu");
-    const changeUsernameBtn = document.getElementById("change-username-btn");
-    const logoutBtn = document.getElementById("logout-btn");
+    <script>
+      // HARDCODED WebSocket server URL
+      const WEBSOCKET_SERVER = "wss://chat-cp1p.onrender.com";
 
-    // State
-    let ws = null;
-    let username = "";
-    let isAuthenticated = false;
-    let serverStartTime = null;
-    let reconnectAttempt = 0;
-    let reconnectTimer = null;
-    let isChangingUsername = false;
-    const userColors = {};
+      console.log("=== CHAT CLIENT STARTING ===");
 
-    // Generate or retrieve deviceId
-    let deviceId = localStorage.getItem("deviceId");
-    if (!deviceId) {
-      deviceId = Math.random().toString(36).substring(2) + Date.now().toString(36);
-      localStorage.setItem("deviceId", deviceId);
-      console.log('Generated new deviceId:', deviceId);
-    }
+      // Elements
+      const chat = document.getElementById("chat");
+      const input = document.getElementById("input");
+      const usernamePrompt = document.getElementById("username-prompt");
+      const usernameInput = document.getElementById("username-input");
+      const usernameSubmit = document.getElementById("username-submit");
+      const reloadNotification = document.getElementById("reload-notification");
+      const reloadCountdown = document.getElementById("reload-countdown");
+      const reloadNowBtn = document.getElementById("reload-now");
+      const settingsBtn = document.getElementById("settings-btn");
+      const settingsMenu = document.getElementById("settings-menu");
+      const changeUsernameBtn = document.getElementById("change-username-btn");
+      const logoutBtn = document.getElementById("logout-btn");
 
-    // Helper functions
-    function getUserColor(name) {
-      if (!userColors[name]) {
-        const index = Object.keys(userColors).length % 6;
-        userColors[name] = `usercolor${index}`;
+      // State
+      let ws = null;
+      let username = "";
+      let isAuthenticated = false;
+      let serverStartTime = null;
+      let reconnectAttempt = 0;
+      let reconnectTimer = null;
+      let isChangingUsername = false;
+      const userColors = {};
+
+      // Generate or retrieve deviceId
+      let deviceId = localStorage.getItem("deviceId");
+      if (!deviceId) {
+        deviceId =
+          Math.random().toString(36).substring(2) + Date.now().toString(36);
+        localStorage.setItem("deviceId", deviceId);
+        console.log("Generated new deviceId:", deviceId);
       }
-      return userColors[name];
-    }
 
-    function formatTime(timestamp) {
-      const date = new Date(timestamp);
-      const hours = date.getHours().toString().padStart(2, '0');
-      const minutes = date.getMinutes().toString().padStart(2, '0');
-      return `${hours}:${minutes}`;
-    }
-
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    }
-
-    function addMessage(msg, timestamp) {
-      const nameMatch = msg.match(/^\[([^\]]+)\]/);
-      let content = msg;
-      let nameClass = "";
-      const timeStr = formatTime(timestamp);
-
-      if (nameMatch) {
-        const name = nameMatch[1];
-        content = msg.replace(/^\[[^\]]+\]/, "");
-        nameClass = getUserColor(name);
-        chat.innerHTML += `<div class="message"><span class="username ${nameClass}">[${name}]</span><span class="message-content">${escapeHtml(content)}</span><span class="timestamp">${timeStr}</span></div>`;
-      } else {
-        chat.innerHTML += `<div class="message"><span class="message-content">${escapeHtml(msg)}</span><span class="timestamp">${timeStr}</span></div>`;
+      // Helper functions
+      function getUserColor(name) {
+        if (!userColors[name]) {
+          const index = Object.keys(userColors).length % 6;
+          userColors[name] = `usercolor${index}`;
+        }
+        return userColors[name];
       }
-      chat.scrollTop = chat.scrollHeight;
-    }
 
-    // Reload notification
-    function showReloadNotification() {
-      reloadNotification.classList.remove("hidden");
-      let seconds = 5;
-      reloadCountdown.textContent = seconds;
+      function formatTime(timestamp) {
+        const date = new Date(timestamp);
+        const hours = date.getHours().toString().padStart(2, "0");
+        const minutes = date.getMinutes().toString().padStart(2, "0");
+        return `${hours}:${minutes}`;
+      }
 
-      const interval = setInterval(() => {
-        seconds--;
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function addMessage(msg, timestamp) {
+        const nameMatch = msg.match(/^\[([^\]]+)\]/);
+        let content = msg;
+        let nameClass = "";
+        const timeStr = formatTime(timestamp);
+
+        if (nameMatch) {
+          const name = nameMatch[1];
+          content = msg.replace(/^\[[^\]]+\]/, "");
+          nameClass = getUserColor(name);
+          chat.innerHTML += `<div class="message"><span class="username ${nameClass}">[${name}]</span><span class="message-content">${escapeHtml(
+            content
+          )}</span><span class="timestamp">${timeStr}</span></div>`;
+        } else {
+          chat.innerHTML += `<div class="message"><span class="message-content">${escapeHtml(
+            msg
+          )}</span><span class="timestamp">${timeStr}</span></div>`;
+        }
+        chat.scrollTop = chat.scrollHeight;
+      }
+
+      // Reload notification
+      function showReloadNotification() {
+        reloadNotification.classList.remove("hidden");
+        let seconds = 5;
         reloadCountdown.textContent = seconds;
-        if (seconds <= 0) {
+
+        const interval = setInterval(() => {
+          seconds--;
+          reloadCountdown.textContent = seconds;
+          if (seconds <= 0) {
+            clearInterval(interval);
+            location.reload();
+          }
+        }, 1000);
+
+        reloadNowBtn.onclick = () => {
           clearInterval(interval);
           location.reload();
+        };
+      }
+
+      // WebSocket connection management
+      function connect() {
+        if (ws && ws.readyState === WebSocket.OPEN) return;
+
+        console.log("Connecting to:", WEBSOCKET_SERVER);
+        ws = new WebSocket(WEBSOCKET_SERVER);
+
+        ws.onopen = () => {
+          console.log("✓ Connected to server");
+          reconnectAttempt = 0;
+
+          // Get saved username
+          const savedUsername = localStorage.getItem("chatUsername");
+
+          if (savedUsername && !isChangingUsername) {
+            // Auto-authenticate with saved username
+            console.log(
+              "Auto-authenticating with saved username:",
+              savedUsername
+            );
+            ws.send(
+              JSON.stringify({
+                type: "auth",
+                username: savedUsername,
+                deviceId: deviceId,
+                isReconnect: reconnectAttempt > 0,
+              })
+            );
+          } else if (!isAuthenticated) {
+            // Show username prompt
+            usernamePrompt.classList.remove("hidden");
+            usernameInput.focus();
+          }
+        };
+
+        ws.onmessage = (evt) => {
+          const data = JSON.parse(evt.data);
+          console.log("← Received:", data.type, data);
+
+          switch (data.type) {
+            case "serverInfo":
+              handleServerInfo(data);
+              break;
+
+            case "authenticated":
+              handleAuthenticated(data);
+              break;
+
+            case "history":
+              handleHistory(data);
+              break;
+
+            case "chat":
+              addMessage(data.msg, data.timestamp || Date.now());
+              break;
+
+            case "usernameChanged":
+              handleUsernameChanged(data);
+              break;
+
+            case "pong":
+              handlePong(data);
+              break;
+
+            case "replaced":
+              console.log("Connection replaced by new device");
+              break;
+
+            case "error":
+              console.error("Server error:", data.msg);
+              addMessage(`Error: ${data.msg}`, Date.now());
+              break;
+          }
+        };
+
+        ws.onclose = () => {
+          console.log("✗ Disconnected from server");
+          isAuthenticated = false;
+          input.disabled = true;
+
+          // Auto-reconnect
+          if (!reconnectTimer) {
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 30000);
+            reconnectAttempt++;
+            console.log(
+              `Reconnecting in ${delay}ms... (attempt ${reconnectAttempt})`
+            );
+            addMessage(`Desconectado. Reconectando...`, Date.now());
+
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              connect();
+            }, delay);
+          }
+        };
+
+        ws.onerror = (err) => {
+          console.error("✗ WebSocket error:", err);
+        };
+      }
+
+      function handleServerInfo(data) {
+        const newStartTime = data.startTime;
+        const savedStartTime = localStorage.getItem("serverStartTime");
+
+        // Check if server has restarted
+        if (
+          savedStartTime &&
+          savedStartTime !== newStartTime.toString() &&
+          serverStartTime
+        ) {
+          console.log("Server restart detected!");
+          showReloadNotification();
         }
-      }, 1000);
 
-      reloadNowBtn.onclick = () => {
-        clearInterval(interval);
-        location.reload();
-      };
-    }
+        serverStartTime = newStartTime;
+        localStorage.setItem("serverStartTime", newStartTime.toString());
+      }
 
-    // WebSocket connection management
-    function connect() {
-      if (ws && ws.readyState === WebSocket.OPEN) return;
+      function handleAuthenticated(data) {
+        console.log("✓ Authenticated as:", data.username);
+        username = data.username;
+        isAuthenticated = true;
+        isChangingUsername = false;
+        input.disabled = false;
+        input.focus();
 
-      console.log('Connecting to:', WEBSOCKET_SERVER);
-      ws = new WebSocket(WEBSOCKET_SERVER);
+        // Hide username prompt if visible
+        usernamePrompt.classList.add("hidden");
 
-      ws.onopen = () => {
-        console.log("✓ Connected to server");
-        reconnectAttempt = 0;
-        
-        // Get saved username
-        const savedUsername = localStorage.getItem("chatUsername");
-        
-        if (savedUsername && !isChangingUsername) {
-          // Auto-authenticate with saved username
-          console.log('Auto-authenticating with saved username:', savedUsername);
-          ws.send(JSON.stringify({ 
-            type: "auth", 
-            username: savedUsername, 
-            deviceId: deviceId,
-            isReconnect: reconnectAttempt > 0
-          }));
-        } else if (!isAuthenticated) {
-          // Show username prompt
-          usernamePrompt.classList.remove("hidden");
-          usernameInput.focus();
+        // Save username if not anonymous
+        if (!username.toLowerCase().startsWith("anon")) {
+          localStorage.setItem("chatUsername", username);
         }
-      };
 
-      ws.onmessage = (evt) => {
-        const data = JSON.parse(evt.data);
-        console.log('← Received:', data.type, data);
-
-        switch(data.type) {
-          case "serverInfo":
-            handleServerInfo(data);
-            break;
-
-          case "authenticated":
-            handleAuthenticated(data);
-            break;
-
-          case "history":
-            handleHistory(data);
-            break;
-
-          case "chat":
-            addMessage(data.msg, data.timestamp || Date.now());
-            break;
-
-          case "usernameChanged":
-            handleUsernameChanged(data);
-            break;
-
-          case "pong":
-            handlePong(data);
-            break;
-
-          case "replaced":
-            console.log("Connection replaced by new device");
-            break;
-
-          case "error":
-            console.error("Server error:", data.msg);
-            addMessage(`Error: ${data.msg}`, Date.now());
-            break;
+        // Update server start time if provided
+        if (data.serverStartTime) {
+          handleServerInfo({ startTime: data.serverStartTime });
         }
-      };
+      }
 
-      ws.onclose = () => {
-        console.log("✗ Disconnected from server");
-        isAuthenticated = false;
-        input.disabled = true;
-        
-        // Auto-reconnect
-        if (!reconnectTimer) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 30000);
-          reconnectAttempt++;
-          console.log(`Reconnecting in ${delay}ms... (attempt ${reconnectAttempt})`);
-          addMessage(`Desconectado. Reconectando...`, Date.now());
-          
-          reconnectTimer = setTimeout(() => {
-            reconnectTimer = null;
-            connect();
-          }, delay);
+      function handleHistory(data) {
+        console.log("Loading history:", data.messages.length, "messages");
+        data.messages.forEach((msgData) => {
+          addMessage(msgData.msg, msgData.timestamp);
+        });
+      }
+
+      function handleUsernameChanged(data) {
+        console.log(
+          "Username changed from",
+          data.oldUsername,
+          "to",
+          data.username
+        );
+        // Preserve color
+        if (userColors[data.oldUsername]) {
+          userColors[data.username] = userColors[data.oldUsername];
         }
-      };
-
-      ws.onerror = (err) => {
-        console.error("✗ WebSocket error:", err);
-      };
-    }
-
-    function handleServerInfo(data) {
-      const newStartTime = data.startTime;
-      const savedStartTime = localStorage.getItem("serverStartTime");
-      
-      // Check if server has restarted
-      if (savedStartTime && savedStartTime !== newStartTime.toString() && serverStartTime) {
-        console.log("Server restart detected!");
-        showReloadNotification();
-      }
-      
-      serverStartTime = newStartTime;
-      localStorage.setItem("serverStartTime", newStartTime.toString());
-    }
-
-    function handleAuthenticated(data) {
-      console.log('✓ Authenticated as:', data.username);
-      username = data.username;
-      isAuthenticated = true;
-      isChangingUsername = false;
-      input.disabled = false;
-      input.focus();
-      
-      // Hide username prompt if visible
-      usernamePrompt.classList.add("hidden");
-      
-      // Save username if not anonymous
-      if (!username.toLowerCase().startsWith('anon')) {
-        localStorage.setItem("chatUsername", username);
-      }
-      
-      // Update server start time if provided
-      if (data.serverStartTime) {
-        handleServerInfo({ startTime: data.serverStartTime });
-      }
-    }
-
-    function handleHistory(data) {
-      console.log('Loading history:', data.messages.length, 'messages');
-      data.messages.forEach((msgData) => {
-        addMessage(msgData.msg, msgData.timestamp);
-      });
-    }
-
-    function handleUsernameChanged(data) {
-      console.log('Username changed from', data.oldUsername, 'to', data.username);
-      username = data.username;
-      isChangingUsername = false;
-      
-      // Save new username
-      if (!username.toLowerCase().startsWith('anon')) {
-        localStorage.setItem("chatUsername", username);
-      }
-      
-      addMessage(`Tu nombre ha cambiado a: ${username}`, Date.now());
-    }
-
-    function handlePong(data) {
-      if (data.serverStartTime && serverStartTime && data.serverStartTime !== serverStartTime) {
-        console.log("Server restart detected via ping!");
-        showReloadNotification();
-      }
-    }
-
-    // UI Event Handlers
-    function submitUsername() {
-      const name = usernameInput.value.trim();
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        console.log('WebSocket not ready');
-        return;
+        username = data.username;
+        isChangingUsername = false;
+        // Save new username
+        if (!username.toLowerCase().startsWith("anon")) {
+          localStorage.setItem("chatUsername", username);
+        }
+        addMessage(`Tu nombre ha cambiado a: ${username}`, Date.now());
       }
 
-      ws.send(JSON.stringify({ 
-        type: "auth", 
-        username: name || "anon", 
-        deviceId: deviceId,
-        isReconnect: false
-      }));
-      
-      usernamePrompt.classList.add("hidden");
-    }
-
-    usernameSubmit.addEventListener("click", submitUsername);
-    usernameInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") submitUsername();
-    });
-
-    // Settings menu
-    settingsBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      settingsMenu.classList.toggle("hidden");
-    });
-
-    document.addEventListener("click", (e) => {
-      if (!settingsMenu.contains(e.target) && e.target !== settingsBtn) {
-        settingsMenu.classList.add("hidden");
+      function handlePong(data) {
+        if (
+          data.serverStartTime &&
+          serverStartTime &&
+          data.serverStartTime !== serverStartTime
+        ) {
+          console.log("Server restart detected via ping!");
+          showReloadNotification();
+        }
       }
-    });
 
-    changeUsernameBtn.addEventListener("click", () => {
-      const newName = prompt("Ingresa tu nuevo nombre de usuario:", username);
-      if (newName && newName.trim() && ws && ws.readyState === WebSocket.OPEN) {
-        isChangingUsername = true;
-        ws.send(JSON.stringify({ 
-          type: "changeUsername", 
-          newUsername: newName.trim()
-        }));
-      }
-      settingsMenu.classList.add("hidden");
-    });
-
-    logoutBtn.addEventListener("click", () => {
-      localStorage.removeItem("chatUsername");
-      if (ws) ws.close();
-      setTimeout(() => location.reload(), 100);
-    });
-
-    // Send message
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && input.value.trim()) {
-        if (!isAuthenticated || !ws || ws.readyState !== WebSocket.OPEN) {
-          console.log("Not ready to send");
+      // UI Event Handlers
+      function submitUsername() {
+        const name = usernameInput.value.trim();
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          console.log("WebSocket not ready");
           return;
         }
-        
-        const msg = input.value;
-        ws.send(JSON.stringify({ type: "chat", msg: msg }));
-        input.value = "";
-      }
-    });
 
-    // Periodic ping to check server status
-    setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN && serverStartTime) {
-        ws.send(JSON.stringify({ type: "ping" }));
-      }
-    }, 30000);
+        ws.send(
+          JSON.stringify({
+            type: "auth",
+            username: name || "anon",
+            deviceId: deviceId,
+            isReconnect: false,
+          })
+        );
 
-    // Start connection
-    connect();
-  </script>
-</body>
+        usernamePrompt.classList.add("hidden");
+      }
+
+      usernameSubmit.addEventListener("click", submitUsername);
+      usernameInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") submitUsername();
+      });
+
+      // Settings menu
+      settingsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        settingsMenu.classList.toggle("hidden");
+      });
+
+      document.addEventListener("click", (e) => {
+        if (!settingsMenu.contains(e.target) && e.target !== settingsBtn) {
+          settingsMenu.classList.add("hidden");
+        }
+      });
+
+      changeUsernameBtn.addEventListener("click", () => {
+        const newName = prompt("Ingresa tu nuevo nombre de usuario:", username);
+        if (
+          newName &&
+          newName.trim() &&
+          ws &&
+          ws.readyState === WebSocket.OPEN
+        ) {
+          isChangingUsername = true;
+          ws.send(
+            JSON.stringify({
+              type: "changeUsername",
+              newUsername: newName.trim(),
+            })
+          );
+        }
+        settingsMenu.classList.add("hidden");
+      });
+
+      logoutBtn.addEventListener("click", () => {
+        localStorage.removeItem("chatUsername");
+        if (ws) ws.close();
+        setTimeout(() => location.reload(), 100);
+      });
+
+      // Send message
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && input.value.trim()) {
+          if (!isAuthenticated || !ws || ws.readyState !== WebSocket.OPEN) {
+            console.log("Not ready to send");
+            return;
+          }
+
+          const msg = input.value;
+          ws.send(JSON.stringify({ type: "chat", msg: msg }));
+          input.value = "";
+        }
+      });
+
+      // Periodic ping to check server status
+      setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN && serverStartTime) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, 30000);
+
+      // Start connection
+      connect();
+    </script>
+  </body>
 </html>
