@@ -9,12 +9,12 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 8080;
 const ADMIN_PWD = process.env.ADMIN_PWD;
 
-// Data structures
+// --- DATA STRUCTURES (SIMPLIFIED) ---
 const clients = new Map(); // ws -> { username, deviceId, authenticated }
-const deviceConnections = new Map(); // deviceId -> { ws, username }
-const usernames = new Set(); // Track all active usernames
-const messageHistory = []; // Store last 100 messages with timestamps
-const rateLimits = new Map(); // username -> { count, lastReset, mutedUntil }
+const deviceToUsername = new Map(); // deviceId -> username (for reconnection)
+const activeUsernames = new Set(); // Currently active usernames
+const messageHistory = [];
+const rateLimits = new Map();
 
 const MAX_HISTORY = 100;
 const SERVER_START_TIME = Date.now();
@@ -36,61 +36,52 @@ app.use((req, res, next) => {
 
 // --- Disable caching ---
 app.use((req, res, next) => {
-  res.setHeader(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate"
-  );
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
-  res.setHeader("Surrogate-Control", "no-store");
   next();
 });
 
-// --- Static files ---
 app.use(express.static("docs"));
-
-// --- Health check endpoint ---
 app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
-// --- Helper Functions ---
+// --- HELPER FUNCTIONS ---
+
+function isUsernameAvailable(username) {
+  return !activeUsernames.has(username);
+}
 
 function generateUniqueUsername(requestedName) {
-  let baseName = requestedName.trim() || "anon";
-
-  // If name is available, use it
-  if (!usernames.has(baseName)) {
+  const baseName = (requestedName || "anon").trim();
+  
+  // If exact name is available, use it
+  if (isUsernameAvailable(baseName)) {
     return baseName;
   }
-
-  // Otherwise append number
+  
+  // Otherwise, append incrementing number
   let counter = 1;
-  let uniqueName = `${baseName}-${counter}`;
-  while (usernames.has(uniqueName)) {
+  let candidateName = `${baseName}${counter}`;
+  while (!isUsernameAvailable(candidateName)) {
     counter++;
-    uniqueName = `${baseName}-${counter}`;
+    candidateName = `${baseName}${counter}`;
   }
-
-  return uniqueName;
+  
+  return candidateName;
 }
 
 function broadcast(msg, timestamp = Date.now(), excludeWs = null) {
-  // Add to history
   messageHistory.push({ msg, timestamp });
   if (messageHistory.length > MAX_HISTORY) {
     messageHistory.shift();
   }
 
-  // Send to all authenticated clients
   for (const [ws, clientData] of clients.entries()) {
-    if (
-      ws !== excludeWs &&
-      clientData.authenticated &&
-      ws.readyState === WebSocket.OPEN
-    ) {
+    if (ws !== excludeWs && clientData.authenticated && ws.readyState === WebSocket.OPEN) {
       try {
         ws.send(JSON.stringify({ type: "chat", msg, timestamp }));
       } catch (err) {
-        console.error("Error broadcasting to client:", err);
+        console.error("Broadcast error:", err);
       }
     }
   }
@@ -101,19 +92,19 @@ function sendToClient(ws, type, data) {
     try {
       ws.send(JSON.stringify({ type, ...data }));
     } catch (err) {
-      console.error("Error sending to client:", err);
+      console.error("Send error:", err);
     }
   }
 }
 
-// ----- Spam Prevention -----
+// --- SPAM PREVENTION ---
 const MAX_MESSAGES = 5;
-const TIME_WINDOW = 10 * 1000; // 10 seconds
-const MUTE_DURATION = 15 * 1000; // 15 seconds
+const TIME_WINDOW = 10000;
+const MUTE_DURATION = 15000;
 
 function isSpamming(username) {
   const now = Date.now();
-
+  
   if (!rateLimits.has(username)) {
     rateLimits.set(username, { count: 1, lastReset: now, mutedUntil: 0 });
     return false;
@@ -121,12 +112,8 @@ function isSpamming(username) {
 
   const userData = rateLimits.get(username);
 
-  // Check if still muted
-  if (now < userData.mutedUntil) {
-    return true;
-  }
+  if (now < userData.mutedUntil) return true;
 
-  // Reset count if time window passed
   if (now - userData.lastReset > TIME_WINDOW) {
     userData.count = 1;
     userData.lastReset = now;
@@ -134,10 +121,8 @@ function isSpamming(username) {
     return false;
   }
 
-  // Increment count
   userData.count++;
 
-  // Check if exceeded limit
   if (userData.count > MAX_MESSAGES) {
     userData.mutedUntil = now + MUTE_DURATION;
     return true;
@@ -146,40 +131,39 @@ function isSpamming(username) {
   return false;
 }
 
-// Cleanup client connection
+// --- CLEANUP ---
 function cleanupClient(ws, silent = false) {
   const clientData = clients.get(ws);
-  if (!clientData) return null;
+  if (!clientData) return;
 
   const { username, deviceId } = clientData;
 
-  // Remove from tracking
+  // Remove from clients
   clients.delete(ws);
 
-  // Only fully clean up if this is the active connection for this device
-  if (deviceId && deviceConnections.get(deviceId)?.ws === ws) {
-    deviceConnections.delete(deviceId);
-    if (username) {
-      usernames.delete(username);
-      rateLimits.delete(username);
+  // Free up the username
+  if (username) {
+    activeUsernames.delete(username);
+    
+    // Don't announce if silent or if device is reconnecting
+    if (!silent && username) {
+      broadcast(`[${username}] ha salido del chat.`);
     }
   }
 
-  return { username, silent };
+  console.log(`Cleaned up: ${username} (${deviceId})`);
 }
 
-// --- WebSocket handling ---
+// --- WEBSOCKET HANDLING ---
 wss.on("connection", (ws) => {
-  console.log("New WebSocket connection");
+  console.log("New connection");
 
-  // Initialize client data
   clients.set(ws, {
     username: null,
     deviceId: null,
     authenticated: false,
   });
 
-  // Send server info immediately
   sendToClient(ws, "serverInfo", { startTime: SERVER_START_TIME });
 
   ws.on("message", (message) => {
@@ -192,76 +176,67 @@ wss.on("connection", (ws) => {
         return;
       }
 
-      // --- Handle authentication/username ---
+      // --- AUTHENTICATION ---
       if (data.type === "auth") {
         const { username: requestedName, deviceId, isReconnect } = data;
 
         if (!deviceId) {
-          sendToClient(ws, "error", { msg: "Dispositivo no identificado." });
+          sendToClient(ws, "error", { msg: "Device ID missing" });
           ws.close();
           return;
         }
 
-        // Check for existing connection from this device
-        const existingDevice = deviceConnections.get(deviceId);
-        let finalName;
-        let isNewUser = true;
+        let finalUsername;
+        let announceJoin = true;
 
-        if (existingDevice && existingDevice.ws !== ws) {
-          // Close old connection
-          if (existingDevice.ws.readyState === WebSocket.OPEN) {
-            try {
-              sendToClient(existingDevice.ws, "replaced", {});
-              existingDevice.ws.close();
-            } catch (e) {
-              console.error("Error closing old connection:", e);
-            }
-          }
-
-          // Reuse the same username if reconnecting
-          if (isReconnect && existingDevice.username) {
-            finalName = existingDevice.username;
-            isNewUser = false;
+        // Check if this device had a previous username
+        if (isReconnect && deviceToUsername.has(deviceId)) {
+          const previousUsername = deviceToUsername.get(deviceId);
+          
+          // Reuse previous username if it's available
+          if (isUsernameAvailable(previousUsername)) {
+            finalUsername = previousUsername;
+            announceJoin = false; // Don't announce reconnections
+            console.log(`Reconnecting ${deviceId} as ${finalUsername}`);
           }
         }
 
         // Generate new username if needed
-        if (!finalName) {
-          // If changing username, free up the old one first
-          if (clientData.username) {
-            usernames.delete(clientData.username);
-          }
-          finalName = generateUniqueUsername(requestedName);
+        if (!finalUsername) {
+          finalUsername = generateUniqueUsername(requestedName);
+          console.log(`New user: ${finalUsername} (${deviceId})`);
         }
 
-        // Update all tracking
-        usernames.add(finalName);
-        clientData.username = finalName;
+        // Register username
+        activeUsernames.add(finalUsername);
+        deviceToUsername.set(deviceId, finalUsername);
+
+        // Update client data
+        clientData.username = finalUsername;
         clientData.deviceId = deviceId;
         clientData.authenticated = true;
-        deviceConnections.set(deviceId, { ws, username: finalName });
 
-        // Send authentication success
+        // Send success response
         sendToClient(ws, "authenticated", {
-          username: finalName,
+          username: finalUsername,
           serverStartTime: SERVER_START_TIME,
         });
 
         // Send chat history
         sendToClient(ws, "history", { messages: messageHistory });
 
-        // Broadcast join message only for new users
-        if (isNewUser && !isReconnect) {
-          broadcast(`[${finalName}] se ha unido al chat.`);
+        // Announce join
+        if (announceJoin) {
+          broadcast(`[${finalUsername}] se ha unido al chat.`);
         }
 
         return;
       }
 
-      // --- Handle username change ---
+      // --- CHANGE USERNAME ---
       if (data.type === "changeUsername") {
         if (!clientData.authenticated) {
-          sendToClient(ws, "error", { msg: "No autenticado." });
+          sendToClient(ws, "error", { msg: "Not authenticated" });
           return;
         }
 
@@ -269,55 +244,53 @@ wss.on("connection", (ws) => {
         const oldUsername = clientData.username;
 
         // Free old username
-        if (oldUsername) {
-          usernames.delete(oldUsername);
-        }
+        activeUsernames.delete(oldUsername);
 
-        // Generate unique username
-        const finalName = generateUniqueUsername(newUsername);
+        // Generate new unique username
+        const finalUsername = generateUniqueUsername(newUsername);
 
-        // Update tracking
-        usernames.add(finalName);
-        clientData.username = finalName;
+        // Register new username
+        activeUsernames.add(finalUsername);
+        clientData.username = finalUsername;
 
-        // Update device connection
+        // Update device mapping
         if (clientData.deviceId) {
-          deviceConnections.set(clientData.deviceId, {
-            ws,
-            username: finalName,
-          });
+          deviceToUsername.set(clientData.deviceId, finalUsername);
         }
 
         // Notify client
         sendToClient(ws, "usernameChanged", {
-          username: finalName,
+          username: finalUsername,
           oldUsername: oldUsername,
         });
 
-        // Broadcast the change
-        broadcast(`[${oldUsername}] ahora es [${finalName}]`);
+        // Broadcast change
+        broadcast(`[${oldUsername}] ahora es [${finalUsername}]`);
 
+        console.log(`Username changed: ${oldUsername} -> ${finalUsername}`);
         return;
       }
 
-      // --- Handle ping ---
+      // --- PING ---
       if (data.type === "ping") {
         sendToClient(ws, "pong", { serverStartTime: SERVER_START_TIME });
         return;
       }
 
-      // --- Require authentication for other actions ---
+      // --- REQUIRE AUTH FOR BELOW ---
       if (!clientData.authenticated) {
-        sendToClient(ws, "error", { msg: "No autenticado." });
+        sendToClient(ws, "error", { msg: "Not authenticated" });
         return;
       }
 
-      // --- Handle chat messages ---
+      // --- CHAT MESSAGE ---
       if (data.type === "chat") {
         const username = clientData.username;
         const msg = (data.msg || "").trim();
+        
         if (!msg) return;
-        // Check spam
+
+        // Spam check
         if (isSpamming(username)) {
           sendToClient(ws, "chat", {
             msg: "Estás enviando mensajes demasiado rápido. Espera un momento.",
@@ -325,113 +298,56 @@ wss.on("connection", (ws) => {
           });
           return;
         }
+
+        // --- ADMIN COMMANDS ---
+        
         // /kick user ADMIN_PWD
         if (msg.startsWith("/kick ")) {
           const parts = msg.split(" ");
           if (parts.length < 3) {
-            sendToClient(ws, "chat", {
-              msg: "Uso: /kick <usuario> <ADMIN_PWD>",
-              timestamp: Date.now(),
-            });
+            sendToClient(ws, "chat", { msg: "Uso: /kick <usuario> <ADMIN_PWD>", timestamp: Date.now() });
             return;
           }
+          
           const targetUser = parts[1];
           const pwd = parts[2];
+          
           if (pwd !== ADMIN_PWD) {
-            sendToClient(ws, "chat", {
-              msg: "Contraseña de administrador incorrecta.",
-              timestamp: Date.now(),
-            });
+            sendToClient(ws, "chat", { msg: "Contraseña incorrecta.", timestamp: Date.now() });
             return;
           }
-          let targetWs = null;
+
+          let kicked = false;
           for (const [client, data] of clients.entries()) {
             if (data.username === targetUser && data.authenticated) {
-              targetWs = client;
-              break;
-            }
-          }
-          if (!targetWs) {
-            sendToClient(ws, "chat", {
-              msg: `Usuario [${targetUser}] no encontrado.`,
-              timestamp: Date.now(),
-            });
-            return;
-          }
-          cleanupClient(targetWs);
-          targetWs.close();
-          broadcast(
-            `Usuario [${targetUser}] ha sido expulsado por [${username}].`
-          );
-          return;
-        }
-        // /removeuser user ADMIN_PWD or /removeuser [all] ADMIN_PWD
-        if (msg.startsWith("/removeuser ")) {
-          const parts = msg.split(" ");
-          if (parts.length < 3) {
-            sendToClient(ws, "chat", {
-              msg: "Uso: /removeuser <usuario|[all]> <ADMIN_PWD>",
-              timestamp: Date.now(),
-            });
-            return;
-          }
-          const targetUser = parts[1];
-          const pwd = parts[2];
-          if (pwd !== ADMIN_PWD) {
-            sendToClient(ws, "chat", {
-              msg: "Contraseña de administrador incorrecta.",
-              timestamp: Date.now(),
-            });
-            return;
-          }
-          if (targetUser === "[all]") {
-            for (const client of clients.keys()) {
-              cleanupClient(client);
+              cleanupClient(client, true);
               client.close();
-            }
-            broadcast(
-              `Todos los usuarios han sido eliminados por [${username}].`
-            );
-            return;
-          }
-          let targetWs = null;
-          for (const [client, data] of clients.entries()) {
-            if (data.username === targetUser && data.authenticated) {
-              targetWs = client;
+              kicked = true;
               break;
             }
           }
-          if (!targetWs) {
-            sendToClient(ws, "chat", {
-              msg: `Usuario [${targetUser}] no encontrado.`,
-              timestamp: Date.now(),
-            });
-            return;
+
+          if (kicked) {
+            broadcast(`[${targetUser}] ha sido expulsado por [${username}].`);
+          } else {
+            sendToClient(ws, "chat", { msg: `Usuario [${targetUser}] no encontrado.`, timestamp: Date.now() });
           }
-          cleanupClient(targetWs);
-          targetWs.close();
-          broadcast(
-            `Usuario [${targetUser}] ha sido eliminado por [${username}].`
-          );
           return;
         }
-        // ...existing code...
+
+        // Regular chat message
+        broadcast(`[${username}] ${msg}`);
+        return;
       }
+
     } catch (err) {
-      console.error("Error processing message:", err);
-      sendToClient(ws, "error", { msg: "Error procesando mensaje." });
+      console.error("Message processing error:", err);
+      sendToClient(ws, "error", { msg: "Server error" });
     }
   });
 
   ws.on("close", () => {
-    const result = cleanupClient(ws);
-    if (result && result.username && !result.silent) {
-      // Only announce departure if this was the active connection
-      const deviceId = clients.get(ws)?.deviceId;
-      if (!deviceId || !deviceConnections.has(deviceId)) {
-        broadcast(`[${result.username}] ha salido del chat.`);
-      }
-    }
+    cleanupClient(ws, false);
   });
 
   ws.on("error", (err) => {
@@ -441,8 +357,6 @@ wss.on("connection", (ws) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(
-    `Server start time: ${new Date(SERVER_START_TIME).toISOString()}`
-  );
+  console.log(`✓ Server running on port ${PORT}`);
+  console.log(`✓ Start time: ${new Date(SERVER_START_TIME).toISOString()}`);
 });
