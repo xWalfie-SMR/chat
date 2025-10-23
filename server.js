@@ -355,10 +355,21 @@ wss.on("connection", (ws) => {
 
         // Handle /clearusers command
         if (msg.startsWith("/clearusers")) {
-          // Only allow if admin
-          if (username !== "admin") {
+          const parts = msg.split(" ");
+          if (parts.length < 3) {
             sendToClient(ws, "chat", {
-              msg: "No tienes permiso para usar este comando.",
+              msg: "Uso: /clearusers <nombre de usuario> <contraseña>",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+
+          const targetUsername = parts.slice(1, -1).join(" ");
+          const pwd = parts[parts.length - 1];
+
+          if (pwd !== ADMIN_PWD) {
+            sendToClient(ws, "chat", {
+              msg: "Contraseña de administrador incorrecta.",
               timestamp: Date.now(),
             });
             return;
@@ -372,7 +383,7 @@ wss.on("connection", (ws) => {
           usernames.clear();
           deviceConnections.clear();
           broadcast(
-            "Todos los usuarios han sido desconectados y los nombres de usuario han sido borrados."
+            `Todos los usuarios han sido desconectados y los nombres de usuario han sido borrados por [${targetUsername}].`
           );
           return;
         }
