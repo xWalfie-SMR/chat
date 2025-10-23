@@ -146,6 +146,7 @@ function isSpamming(username) {
   return false;
 }
 
+// Fix: Ensure proper cleanup of old usernames and connections
 function cleanupClient(ws, silent = false) {
   const clientData = clients.get(ws);
   if (!clientData) return null;
@@ -158,7 +159,7 @@ function cleanupClient(ws, silent = false) {
     deviceConnections.delete(deviceId);
   }
   if (username) {
-    usernames.delete(username);
+    usernames.delete(username); // Ensure username is removed
     rateLimits.delete(username);
   }
 
