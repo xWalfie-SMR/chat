@@ -36,7 +36,10 @@ app.use((req, res, next) => {
 
 // --- Disable caching ---
 app.use((req, res, next) => {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   next();
@@ -53,12 +56,12 @@ function isUsernameAvailable(username) {
 
 function generateUniqueUsername(requestedName) {
   const baseName = (requestedName || "anon").trim();
-  
+
   // If exact name is available, use it
   if (isUsernameAvailable(baseName)) {
     return baseName;
   }
-  
+
   // Otherwise, append incrementing number
   let counter = 1;
   let candidateName = `${baseName}${counter}`;
@@ -66,7 +69,7 @@ function generateUniqueUsername(requestedName) {
     counter++;
     candidateName = `${baseName}${counter}`;
   }
-  
+
   return candidateName;
 }
 
@@ -77,7 +80,11 @@ function broadcast(msg, timestamp = Date.now(), excludeWs = null) {
   }
 
   for (const [ws, clientData] of clients.entries()) {
-    if (ws !== excludeWs && clientData.authenticated && ws.readyState === WebSocket.OPEN) {
+    if (
+      ws !== excludeWs &&
+      clientData.authenticated &&
+      ws.readyState === WebSocket.OPEN
+    ) {
       try {
         ws.send(JSON.stringify({ type: "chat", msg, timestamp }));
       } catch (err) {
@@ -104,7 +111,7 @@ const MUTE_DURATION = 15000;
 
 function isSpamming(username) {
   const now = Date.now();
-  
+
   if (!rateLimits.has(username)) {
     rateLimits.set(username, { count: 1, lastReset: now, mutedUntil: 0 });
     return false;
@@ -144,7 +151,7 @@ function cleanupClient(ws, silent = false) {
   // Free up the username
   if (username) {
     activeUsernames.delete(username);
-    
+
     // Don't announce if silent or if device is reconnecting
     if (!silent && username) {
       broadcast(`[${username}] ha salido del chat.`);
@@ -165,6 +172,7 @@ wss.on("connection", (ws) => {
   });
 
   sendToClient(ws, "serverInfo", { startTime: SERVER_START_TIME });
+  sendToClient(ws, "prompt", { msg: "Enter your username:" });
 
   ws.on("message", (message) => {
     try {
@@ -177,6 +185,27 @@ wss.on("connection", (ws) => {
       }
 
       // --- AUTHENTICATION ---
+      if (data.type === "username") {
+        const { msg: requestedName, deviceId } = data;
+
+        // Use the same logic as your "auth" handler
+        const finalUsername = generateUniqueUsername(requestedName);
+
+        activeUsernames.add(finalUsername);
+        if (deviceId) {
+          deviceToUsername.set(deviceId, finalUsername);
+        }
+
+        clientData.username = finalUsername;
+        clientData.deviceId = deviceId;
+        clientData.authenticated = true;
+
+        sendToClient(ws, "history", { messages: messageHistory });
+        broadcast(`[${finalUsername}] se ha unido al chat.`);
+
+        return;
+      }
+
       if (data.type === "auth") {
         const { username: requestedName, deviceId, isReconnect } = data;
 
@@ -192,7 +221,7 @@ wss.on("connection", (ws) => {
         // Check if this device had a previous username
         if (isReconnect && deviceToUsername.has(deviceId)) {
           const previousUsername = deviceToUsername.get(deviceId);
-          
+
           // Reuse previous username if it's available
           if (isUsernameAvailable(previousUsername)) {
             finalUsername = previousUsername;
@@ -287,7 +316,7 @@ wss.on("connection", (ws) => {
       if (data.type === "chat") {
         const username = clientData.username;
         const msg = (data.msg || "").trim();
-        
+
         if (!msg) return;
 
         // Spam check
@@ -300,20 +329,26 @@ wss.on("connection", (ws) => {
         }
 
         // --- ADMIN COMMANDS ---
-        
+
         // /kick user ADMIN_PWD
         if (msg.startsWith("/kick ")) {
           const parts = msg.split(" ");
           if (parts.length < 3) {
-            sendToClient(ws, "chat", { msg: "Uso: /kick <usuario> <ADMIN_PWD>", timestamp: Date.now() });
+            sendToClient(ws, "chat", {
+              msg: "Uso: /kick <usuario> <ADMIN_PWD>",
+              timestamp: Date.now(),
+            });
             return;
           }
-          
+
           const targetUser = parts[1];
           const pwd = parts[2];
-          
+
           if (pwd !== ADMIN_PWD) {
-            sendToClient(ws, "chat", { msg: "Contraseña incorrecta.", timestamp: Date.now() });
+            sendToClient(ws, "chat", {
+              msg: "Contraseña incorrecta.",
+              timestamp: Date.now(),
+            });
             return;
           }
 
@@ -330,7 +365,10 @@ wss.on("connection", (ws) => {
           if (kicked) {
             broadcast(`[${targetUser}] ha sido expulsado por [${username}].`);
           } else {
-            sendToClient(ws, "chat", { msg: `Usuario [${targetUser}] no encontrado.`, timestamp: Date.now() });
+            sendToClient(ws, "chat", {
+              msg: `Usuario [${targetUser}] no encontrado.`,
+              timestamp: Date.now(),
+            });
           }
           return;
         }
@@ -339,7 +377,6 @@ wss.on("connection", (ws) => {
         broadcast(`[${username}] ${msg}`);
         return;
       }
-
     } catch (err) {
       console.error("Message processing error:", err);
       sendToClient(ws, "error", { msg: "Server error" });
@@ -357,6 +394,6 @@ wss.on("connection", (ws) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`✓ Server running on port ${PORT}`);
-  console.log(`✓ Start time: ${new Date(SERVER_START_TIME).toISOString()}`);
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Start time: ${new Date(SERVER_START_TIME).toISOString()}`);
 });
