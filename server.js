@@ -36,7 +36,10 @@ app.use((req, res, next) => {
 
 // --- Disable caching ---
 app.use((req, res, next) => {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   res.setHeader("Surrogate-Control", "no-store");
@@ -53,12 +56,12 @@ app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
 function generateUniqueUsername(requestedName) {
   let baseName = requestedName.trim() || "anon";
-  
+
   // If name is available, use it
   if (!usernames.has(baseName)) {
     return baseName;
   }
-  
+
   // Otherwise append number
   let counter = 1;
   let uniqueName = `${baseName}-${counter}`;
@@ -66,7 +69,7 @@ function generateUniqueUsername(requestedName) {
     counter++;
     uniqueName = `${baseName}-${counter}`;
   }
-  
+
   return uniqueName;
 }
 
@@ -79,7 +82,11 @@ function broadcast(msg, timestamp = Date.now(), excludeWs = null) {
 
   // Send to all authenticated clients
   for (const [ws, clientData] of clients.entries()) {
-    if (ws !== excludeWs && clientData.authenticated && ws.readyState === WebSocket.OPEN) {
+    if (
+      ws !== excludeWs &&
+      clientData.authenticated &&
+      ws.readyState === WebSocket.OPEN
+    ) {
       try {
         ws.send(JSON.stringify({ type: "chat", msg, timestamp }));
       } catch (err) {
@@ -106,14 +113,14 @@ const MUTE_DURATION = 15 * 1000; // 15 seconds
 
 function isSpamming(username) {
   const now = Date.now();
-  
+
   if (!rateLimits.has(username)) {
     rateLimits.set(username, { count: 1, lastReset: now, mutedUntil: 0 });
     return false;
   }
 
   const userData = rateLimits.get(username);
-  
+
   // Check if still muted
   if (now < userData.mutedUntil) {
     return true;
@@ -129,7 +136,7 @@ function isSpamming(username) {
 
   // Increment count
   userData.count++;
-  
+
   // Check if exceeded limit
   if (userData.count > MAX_MESSAGES) {
     userData.mutedUntil = now + MUTE_DURATION;
@@ -144,7 +151,7 @@ function cleanupClient(ws, silent = false) {
   if (!clientData) return null;
 
   const { username, deviceId } = clientData;
-  
+
   // Remove from tracking
   clients.delete(ws);
   if (deviceId && deviceConnections.get(deviceId) === ws) {
@@ -154,7 +161,7 @@ function cleanupClient(ws, silent = false) {
     usernames.delete(username);
     rateLimits.delete(username);
   }
-  
+
   return { username, silent };
 }
 
@@ -164,7 +171,7 @@ wss.on("connection", (ws) => {
   clients.set(ws, {
     username: null,
     deviceId: null,
-    authenticated: false
+    authenticated: false,
   });
 
   // Send initial prompts
@@ -197,7 +204,11 @@ wss.on("connection", (ws) => {
 
         // Check if this device already has a connection
         const existingWs = deviceConnections.get(deviceId);
-        if (existingWs && existingWs !== ws && existingWs.readyState === WebSocket.OPEN) {
+        if (
+          existingWs &&
+          existingWs !== ws &&
+          existingWs.readyState === WebSocket.OPEN
+        ) {
           // Silently close the old connection
           const oldData = clients.get(existingWs);
           if (oldData) {
@@ -236,7 +247,9 @@ wss.on("connection", (ws) => {
         // For auto-login, isReady will be true. For manual entry, wait for confirmation.
         if (isReady !== false) {
           if (isChangingUsername) {
-            broadcast(`[${oldUsername}] ahora es conocido como [${finalName}].`);
+            broadcast(
+              `[${oldUsername}] ahora es conocido como [${finalName}].`
+            );
           } else {
             broadcast(`[${finalName}] se ha unido al chat.`);
           }
@@ -268,7 +281,7 @@ wss.on("connection", (ws) => {
         if (isSpamming(username)) {
           sendToClient(ws, "chat", {
             msg: "Estás enviando mensajes demasiado rápido. Espera un momento.",
-            timestamp: Date.now()
+            timestamp: Date.now(),
           });
           return;
         }
@@ -281,7 +294,7 @@ wss.on("connection", (ws) => {
           if (lastSpaceIndex === -1) {
             sendToClient(ws, "chat", {
               msg: "Uso: /kick <nombre de usuario> <contraseña>",
-              timestamp: Date.now()
+              timestamp: Date.now(),
             });
             return;
           }
@@ -292,7 +305,7 @@ wss.on("connection", (ws) => {
           if (!targetName || !pwd) {
             sendToClient(ws, "chat", {
               msg: "Uso: /kick <nombre de usuario> <contraseña>",
-              timestamp: Date.now()
+              timestamp: Date.now(),
             });
             return;
           }
@@ -300,7 +313,7 @@ wss.on("connection", (ws) => {
           if (pwd !== ADMIN_PWD) {
             sendToClient(ws, "chat", {
               msg: "Contraseña de administrador incorrecta.",
-              timestamp: Date.now()
+              timestamp: Date.now(),
             });
             return;
           }
@@ -309,7 +322,7 @@ wss.on("connection", (ws) => {
           if (targetName === username) {
             sendToClient(ws, "chat", {
               msg: "No puedes expulsarte a ti mismo.",
-              timestamp: Date.now()
+              timestamp: Date.now(),
             });
             return;
           }
@@ -326,7 +339,7 @@ wss.on("connection", (ws) => {
           if (!targetWs) {
             sendToClient(ws, "chat", {
               msg: `Usuario [${targetName}] no encontrado.`,
-              timestamp: Date.now()
+              timestamp: Date.now(),
             });
             return;
           }
@@ -334,7 +347,33 @@ wss.on("connection", (ws) => {
           // Kick the user
           cleanupClient(targetWs);
           targetWs.close();
-          broadcast(`El administrador [${username}] expulsó a [${targetName}] del chat.`);
+          broadcast(
+            `El administrador [${username}] expulsó a [${targetName}] del chat.`
+          );
+          return;
+        }
+
+        // Handle /clearusers command
+        if (msg.startsWith("/clearusers")) {
+          // Only allow if admin
+          if (username !== "admin") {
+            sendToClient(ws, "chat", {
+              msg: "No tienes permiso para usar este comando.",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+
+          // Disconnect all clients and clear usernames
+          for (const client of clients.keys()) {
+            client.close();
+          }
+          clients.clear();
+          usernames.clear();
+          deviceConnections.clear();
+          broadcast(
+            "Todos los usuarios han sido desconectados y los nombres de usuario han sido borrados."
+          );
           return;
         }
 
@@ -362,5 +401,7 @@ wss.on("connection", (ws) => {
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Server start time: ${new Date(SERVER_START_TIME).toISOString()}`);
+  console.log(
+    `Server start time: ${new Date(SERVER_START_TIME).toISOString()}`
+  );
 });
