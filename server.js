@@ -11,17 +11,17 @@ const ADMIN_PWD = process.env.ADMIN_PWD;
 
 // --- COLOR CONSTANTS ---
 const colors = {
-  reset: '\x1b[0m',
-  bright: '\x1b[1m',
-  dim: '\x1b[2m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  blue: '\x1b[34m',
-  magenta: '\x1b[35m',
-  cyan: '\x1b[36m',
-  white: '\x1b[37m',
-  gray: '\x1b[90m'
+  reset: "\x1b[0m",
+  bright: "\x1b[1m",
+  dim: "\x1b[2m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  magenta: "\x1b[35m",
+  cyan: "\x1b[36m",
+  white: "\x1b[37m",
+  gray: "\x1b[90m",
 };
 
 // --- DATA STRUCTURES (SIMPLIFIED) ---
@@ -67,17 +67,17 @@ app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
 function sanitizeUsername(username) {
   // Remove spaces, special characters, keep only alphanumeric and underscores
-  const sanitized = username.replace(/[^a-zA-Z0-9_]/g, '');
-  
+  const sanitized = username.replace(/[^a-zA-Z0-9_]/g, "");
+
   // Ensure it's not empty and has reasonable length
   if (sanitized.length === 0) {
-    return 'anon';
+    return "anon";
   }
-  
+
   if (sanitized.length > 20) {
     return sanitized.substring(0, 20);
   }
-  
+
   return sanitized;
 }
 
@@ -87,8 +87,15 @@ function getUserColor(username) {
   for (let i = 0; i < username.length; i++) {
     hash = username.charCodeAt(i) + ((hash << 5) - hash);
   }
-  
-  const userColors = [colors.red, colors.green, colors.yellow, colors.blue, colors.magenta, colors.cyan];
+
+  const userColors = [
+    colors.red,
+    colors.green,
+    colors.yellow,
+    colors.blue,
+    colors.magenta,
+    colors.cyan,
+  ];
   return userColors[Math.abs(hash) % userColors.length];
 }
 
@@ -101,12 +108,17 @@ function formatMessageForTerminal(msg) {
     const userColor = getUserColor(username);
     return `${userColor}[${username}]${colors.reset} ${message}`;
   }
-  
+
   // System messages (join/leave/kick) - use gray
-  if (msg.includes('se ha unido') || msg.includes('ha salido') || msg.includes('expulsado') || msg.includes('ahora es')) {
+  if (
+    msg.includes("se ha unido") ||
+    msg.includes("ha salido") ||
+    msg.includes("expulsado") ||
+    msg.includes("ahora es")
+  ) {
     return `${colors.gray}${msg}${colors.reset}`;
   }
-  
+
   return msg;
 }
 
@@ -170,10 +182,14 @@ function sendToClient(ws, type, data) {
         } else if (type === "history") {
           if (data.messages.length > 0) {
             ws.send(`\n${colors.cyan}--- Chat History ---${colors.reset}`);
-            data.messages.forEach((msg) => ws.send(formatMessageForTerminal(msg.msg)));
+            data.messages.forEach((msg) =>
+              ws.send(formatMessageForTerminal(msg.msg))
+            );
             ws.send(`${colors.cyan}--- End of History ---${colors.reset}\n`);
           } else {
-            ws.send(`${colors.cyan}No chat history yet. Start chatting!${colors.reset}\n`);
+            ws.send(
+              `${colors.cyan}No chat history yet. Start chatting!${colors.reset}\n`
+            );
           }
         } else if (type === "error") {
           ws.send(`${colors.red}Error: ${data.msg}${colors.reset}`);
@@ -190,7 +206,7 @@ function sendToClient(ws, type, data) {
 }
 
 // --- SPAM PREVENTION ---
-const MAX_MESSAGES = 5;
+const MAX_MESSAGES = 15;
 const TIME_WINDOW = 10000;
 const MUTE_DURATION = 5000;
 
@@ -395,50 +411,97 @@ wss.on("connection", (ws) => {
             });
             return;
           }
-          
-          // If message starts with /, do not broadcast to chat
+          // If message starts with /, only handle if it matches a known command
           if (msg.startsWith("/")) {
-            const parts = msg.split(" ");
-            if (parts.length < 3) {
-              sendToClient(ws, "chat", {
-                msg: "Uso: /kick <usuario> <ADMIN_PWD>",
-                timestamp: Date.now(),
-              });
-              return;
-            }
-
-            const targetUser = parts[1];
-            const pwd = parts[2];
-
-            if (pwd !== ADMIN_PWD) {
-              sendToClient(ws, "chat", {
-                msg: "Contraseña incorrecta.",
-                timestamp: Date.now(),
-              });
-              return;
-            }
-
-            let kicked = false;
-            for (const [client, data] of clients.entries()) {
-              if (data.username === targetUser && data.authenticated) {
-                cleanupClient(client, true);
-                client.close();
-                kicked = true;
-                break;
+            if (msg.startsWith("/kick ")) {
+              const parts = msg.split(" ");
+              if (parts.length < 3) {
+                sendToClient(ws, "chat", {
+                  msg: "Uso: /kick <usuario> <ADMIN_PWD>",
+                  timestamp: Date.now(),
+                });
+                return;
               }
-            }
 
-            if (kicked) {
-              broadcast(`[${targetUser}] ha sido expulsado por [${username}].`);
-            } else {
-              sendToClient(ws, "chat", {
-                msg: `Usuario [${targetUser}] no encontrado.`,
-                timestamp: Date.now(),
-              });
+              const targetUser = parts[1];
+              const pwd = parts[2];
+
+              if (pwd !== ADMIN_PWD) {
+                sendToClient(ws, "chat", {
+                  msg: "Contraseña incorrecta.",
+                  timestamp: Date.now(),
+                });
+                return;
+              }
+
+              let kicked = false;
+              for (const [client, data] of clients.entries()) {
+                if (data.username === targetUser && data.authenticated) {
+                  cleanupClient(client, true);
+                  client.close();
+                  kicked = true;
+                  break;
+                }
+              }
+
+              if (kicked) {
+                broadcast(
+                  `[${targetUser}] ha sido expulsado por [${username}].`
+                );
+              } else {
+                sendToClient(ws, "chat", {
+                  msg: `Usuario [${targetUser}] no encontrado.`,
+                  timestamp: Date.now(),
+                });
+              }
+              return;
             }
+            if (msg.startsWith("/removeuser ")) {
+              const parts = msg.split(" ");
+              if (parts.length < 3) {
+                sendToClient(ws, "chat", {
+                  msg: "Uso: /removeuser <usuario> <ADMIN_PWD>",
+                  timestamp: Date.now(),
+                });
+                return;
+              }
+
+              const targetUser = parts[1];
+              const pwd = parts[2];
+
+              if (pwd !== ADMIN_PWD) {
+                sendToClient(ws, "chat", {
+                  msg: "Contraseña incorrecta.",
+                  timestamp: Date.now(),
+                });
+                return;
+              }
+
+              let removed = false;
+              for (const [client, data] of clients.entries()) {
+                if (data.username === targetUser && data.authenticated) {
+                  cleanupClient(client, true);
+                  client.close();
+                  removed = true;
+                  break;
+                }
+              }
+
+              if (removed) {
+                broadcast(
+                  `[${targetUser}] ha sido removido por [${username}].`
+                );
+              } else {
+                sendToClient(ws, "chat", {
+                  msg: `Usuario [${targetUser}] no encontrado.`,
+                  timestamp: Date.now(),
+                });
+              }
+              return;
+            }
+            // Ignore unknown /commands, do not show anything in chat
             return;
           }
-
           broadcast(`[${username}]: ${msg}`);
           return;
         }
@@ -451,7 +514,9 @@ wss.on("connection", (ws) => {
           const finalUsername = generateUniqueUsername(sanitizedName);
 
           if (sanitizedName !== messageStr) {
-            ws.send(`${colors.yellow}Username sanitized to: ${finalUsername}${colors.reset}`);
+            ws.send(
+              `${colors.yellow}Username sanitized to: ${finalUsername}${colors.reset}`
+            );
           }
 
           activeUsernames.add(finalUsername);
@@ -477,7 +542,9 @@ wss.on("connection", (ws) => {
           if (messageStr.startsWith("/kick ")) {
             const parts = messageStr.split(" ");
             if (parts.length < 3) {
-              ws.send(`${colors.yellow}Uso: /kick <usuario> <ADMIN_PWD>${colors.reset}`);
+              ws.send(
+                `${colors.yellow}Uso: /kick <usuario> <ADMIN_PWD>${colors.reset}`
+              );
               return;
             }
 
@@ -504,7 +571,49 @@ wss.on("connection", (ws) => {
                 `[${targetUser}] ha sido expulsado por [${clientData.username}].`
               );
             } else {
-              ws.send(`${colors.red}Usuario [${targetUser}] no encontrado.${colors.reset}`);
+              ws.send(
+                `${colors.red}Usuario [${targetUser}] no encontrado.${colors.reset}`
+              );
+            }
+            return;
+          }
+
+          // Handle removeuser command
+          if (messageStr.startsWith("/removeuser ")) {
+            const parts = messageStr.split(" ");
+            if (parts.length < 3) {
+              ws.send(
+                `${colors.yellow}Uso: /removeuser <usuario> <ADMIN_PWD>${colors.reset}`
+              );
+              return;
+            }
+
+            const targetUser = parts[1];
+            const pwd = parts[2];
+
+            if (pwd !== ADMIN_PWD) {
+              ws.send(`${colors.red}Contraseña incorrecta.${colors.reset}`);
+              return;
+            }
+
+            let removed = false;
+            for (const [client, data] of clients.entries()) {
+              if (data.username === targetUser && data.authenticated) {
+                cleanupClient(client, true);
+                client.close();
+                removed = true;
+                break;
+              }
+            }
+
+            if (removed) {
+              broadcast(
+                `[${targetUser}] ha sido removido por [${clientData.username}].`
+              );
+            } else {
+              ws.send(
+                `${colors.red}Usuario [${targetUser}] no encontrado.${colors.reset}`
+              );
             }
             return;
           }
