@@ -123,10 +123,30 @@
       }
 
       function addMessage(msg, timestamp) {
+        // Detect username change message
+        const changeMatch = msg.match(
+          /\[([^\]]+)\] ahora es conocido como \[([^\]]+)\]\./
+        );
+        const timeStr = formatTime(timestamp);
+
+        if (changeMatch) {
+          const oldName = changeMatch[1];
+          const newName = changeMatch[2];
+          const oldClass = getUserColor(oldName);
+          const newClass = getUserColor(newName);
+          chat.innerHTML += `<div class="message">
+            <span class="username ${oldClass}">[${oldName}]</span>
+            ahora es conocido como
+            <span class="username ${newClass}">[${newName}]</span>.
+            <span class="timestamp">${timeStr}</span>
+          </div>`;
+          chat.scrollTop = chat.scrollHeight;
+          return;
+        }
+
         const nameMatch = msg.match(/^\[([^\]]+)\]/);
         let content = msg;
         let nameClass = "";
-        const timeStr = formatTime(timestamp);
 
         if (nameMatch) {
           const name = nameMatch[1];

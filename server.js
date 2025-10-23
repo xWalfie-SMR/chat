@@ -155,7 +155,7 @@ function cleanupClient(ws, silent = false) {
 
   // Remove from tracking
   clients.delete(ws);
-  
+
   // Only fully clean up if this is the active connection for this device
   if (deviceId && deviceConnections.get(deviceId)?.ws === ws) {
     deviceConnections.delete(deviceId);
@@ -171,7 +171,7 @@ function cleanupClient(ws, silent = false) {
 // --- WebSocket handling ---
 wss.on("connection", (ws) => {
   console.log("New WebSocket connection");
-  
+
   // Initialize client data
   clients.set(ws, {
     username: null,
@@ -217,7 +217,7 @@ wss.on("connection", (ws) => {
               console.error("Error closing old connection:", e);
             }
           }
-          
+
           // Reuse the same username if reconnecting
           if (isReconnect && existingDevice.username) {
             finalName = existingDevice.username;
@@ -242,9 +242,9 @@ wss.on("connection", (ws) => {
         deviceConnections.set(deviceId, { ws, username: finalName });
 
         // Send authentication success
-        sendToClient(ws, "authenticated", { 
+        sendToClient(ws, "authenticated", {
           username: finalName,
-          serverStartTime: SERVER_START_TIME 
+          serverStartTime: SERVER_START_TIME,
         });
 
         // Send chat history
@@ -275,25 +275,28 @@ wss.on("connection", (ws) => {
 
         // Generate unique username
         const finalName = generateUniqueUsername(newUsername);
-        
+
         // Update tracking
         usernames.add(finalName);
         clientData.username = finalName;
-        
+
         // Update device connection
         if (clientData.deviceId) {
-          deviceConnections.set(clientData.deviceId, { ws, username: finalName });
+          deviceConnections.set(clientData.deviceId, {
+            ws,
+            username: finalName,
+          });
         }
 
         // Notify client
-        sendToClient(ws, "usernameChanged", { 
+        sendToClient(ws, "usernameChanged", {
           username: finalName,
-          oldUsername: oldUsername 
+          oldUsername: oldUsername,
         });
 
         // Broadcast the change
         broadcast(`[${oldUsername}] ahora es [${finalName}]`);
-        
+
         return;
       }
 
@@ -313,9 +316,7 @@ wss.on("connection", (ws) => {
       if (data.type === "chat") {
         const username = clientData.username;
         const msg = (data.msg || "").trim();
-
         if (!msg) return;
-
         // Check spam
         if (isSpamming(username)) {
           sendToClient(ws, "chat", {
@@ -324,8 +325,97 @@ wss.on("connection", (ws) => {
           });
           return;
         }
-
-        broadcast(`[${username}]: ${msg}`);
+        // /kick user ADMIN_PWD
+        if (msg.startsWith("/kick ")) {
+          const parts = msg.split(" ");
+          if (parts.length < 3) {
+            sendToClient(ws, "chat", {
+              msg: "Uso: /kick <usuario> <ADMIN_PWD>",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          const targetUser = parts[1];
+          const pwd = parts[2];
+          if (pwd !== ADMIN_PWD) {
+            sendToClient(ws, "chat", {
+              msg: "Contraseña de administrador incorrecta.",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          let targetWs = null;
+          for (const [client, data] of clients.entries()) {
+            if (data.username === targetUser && data.authenticated) {
+              targetWs = client;
+              break;
+            }
+          }
+          if (!targetWs) {
+            sendToClient(ws, "chat", {
+              msg: `Usuario [${targetUser}] no encontrado.`,
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          cleanupClient(targetWs);
+          targetWs.close();
+          broadcast(
+            `Usuario [${targetUser}] ha sido expulsado por [${username}].`
+          );
+          return;
+        }
+        // /removeuser user ADMIN_PWD or /removeuser [all] ADMIN_PWD
+        if (msg.startsWith("/removeuser ")) {
+          const parts = msg.split(" ");
+          if (parts.length < 3) {
+            sendToClient(ws, "chat", {
+              msg: "Uso: /removeuser <usuario|[all]> <ADMIN_PWD>",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          const targetUser = parts[1];
+          const pwd = parts[2];
+          if (pwd !== ADMIN_PWD) {
+            sendToClient(ws, "chat", {
+              msg: "Contraseña de administrador incorrecta.",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          if (targetUser === "[all]") {
+            for (const client of clients.keys()) {
+              cleanupClient(client);
+              client.close();
+            }
+            broadcast(
+              `Todos los usuarios han sido eliminados por [${username}].`
+            );
+            return;
+          }
+          let targetWs = null;
+          for (const [client, data] of clients.entries()) {
+            if (data.username === targetUser && data.authenticated) {
+              targetWs = client;
+              break;
+            }
+          }
+          if (!targetWs) {
+            sendToClient(ws, "chat", {
+              msg: `Usuario [${targetUser}] no encontrado.`,
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          cleanupClient(targetWs);
+          targetWs.close();
+          broadcast(
+            `Usuario [${targetUser}] ha sido eliminado por [${username}].`
+          );
+          return;
+        }
+        // ...existing code...
       }
     } catch (err) {
       console.error("Error processing message:", err);
