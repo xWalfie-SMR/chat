@@ -492,6 +492,30 @@ wss.on("connection", (ws) => {
           return;
         }
 
+        if (data.type === "logout") {
+          if (!clientData.authenticated) {
+            sendToClient(ws, "error", { msg: "Not authenticated" });
+            return;
+          }
+
+          console.log(`[LOGOUT] ${clientData.username} (${clientData.deviceId}) - explicit logout`);
+          
+          // Do immediate cleanup (no grace period for explicit logout)
+          const cleanupData = immediateCleanup(ws);
+          
+          // Send confirmation
+          sendToClient(ws, "loggedOut", {});
+          
+          // Announce departure
+          if (cleanupData && cleanupData.username) {
+            broadcast(`[${cleanupData.username}] ha salido del chat.`);
+          }
+          
+          // Close the connection
+          ws.close();
+          return;
+        }
+
         if (!clientData.authenticated) {
           sendToClient(ws, "error", { msg: "Not authenticated" });
           return;

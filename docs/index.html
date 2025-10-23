@@ -314,6 +314,10 @@
             case "replaced":
               console.log("Connection replaced");
               break;
+
+            case "loggedOut":
+              console.log("Logout confirmed by server");
+              break;
           }
         };
 
@@ -492,35 +496,42 @@
           reconnectTimer = null;
         }
         
-        // Close the WebSocket connection
-        if (ws) {
-          ws.close();
-          ws = null;
+        // Send logout message to server before closing
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "logout" }));
         }
         
-        // Clear all state
-        username = "";
-        isAuthenticated = false;
-        localStorage.removeItem("chatUsername");
-        
-        // Clear the chat history
-        chat.innerHTML = "";
-        
-        // Disable input
-        input.disabled = true;
-        input.value = "";
-        
-        // Clear username input
-        usernameInput.value = "";
-        
-        // Show the username prompt
-        usernamePrompt.classList.remove("hidden");
-        usernameInput.focus();
-        
-        // Reset logout flag and reconnect with fresh state
-        isLoggingOut = false;
-        reconnectAttempt = 0;
-        connect();
+        // Wait a bit for the server to process the logout, then clean up
+        setTimeout(() => {
+          // Close the WebSocket connection
+          if (ws) {
+            ws.close();
+            ws = null;
+          }
+          
+          // Clear all state
+          username = "";
+          isAuthenticated = false;
+          localStorage.removeItem("chatUsername");
+          
+          // Clear the chat history
+          chat.innerHTML = "";
+          
+          // Disable input
+          input.disabled = true;
+          input.value = "";
+          
+          // Clear username input
+          usernameInput.value = "";
+          
+          // Show the username prompt
+          usernamePrompt.classList.remove("hidden");
+          usernameInput.focus();
+          
+          // Reset logout flag after everything is cleaned up
+          isLoggingOut = false;
+          reconnectAttempt = 0;
+        }, 100);
       });
 
       logoutCancel.addEventListener("click", () => {
