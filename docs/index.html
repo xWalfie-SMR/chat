@@ -14,9 +14,8 @@
     <div class="modal-content">
       <h2>Bienvenido al Chat</h2>
       <p>Escribe tu nombre de usuario:</p>
-      <input id="username-input" type="text" placeholder="Usuario (sin espacios)" autocomplete="off" autofocus />
+      <input id="username-input" type="text" placeholder="Usuario" autocomplete="off" autofocus />
       <button id="username-submit">Entrar</button>
-      <p id="username-error" class="error-text hidden">Los nombres no pueden contener espacios</p>
     </div>
   </div>
 
@@ -62,7 +61,6 @@
     const usernamePrompt = document.getElementById("username-prompt");
     const usernameInput = document.getElementById("username-input");
     const usernameSubmit = document.getElementById("username-submit");
-    const usernameError = document.getElementById("username-error");
     const loginNotification = document.getElementById("login-notification");
     const loginUsername = document.getElementById("login-username");
     const reloadNotification = document.getElementById("reload-notification");
@@ -83,7 +81,6 @@
     let reconnectTimer = null;
     let isChangingUsername = false;
     let isLoggingOut = false;
-    let isKicked = false;
     const userColors = {};
 
     // Generate or retrieve deviceId
@@ -95,10 +92,6 @@
     }
 
     // Helper functions
-    function validateUsername(name) {
-      return name && !name.includes(' ') && name.length <= 20;
-    }
-
     function getUserColor(name) {
       return userColors[name] || 'usercolor0';
     }
@@ -130,14 +123,7 @@
       if (nameMatch) {
         const name = nameMatch[1];
         content = msg.replace(/^\[[^\]]+\]/, "");
-        
-        // Special styling for ADMIN messages
-        if (name === "ADMIN") {
-          nameClass = "admin-message";
-        } else {
-          nameClass = getUserColor(name);
-        }
-        
+        nameClass = getUserColor(name);
         chat.innerHTML += `<div class="message"><span class="username ${nameClass}">[${name}]</span><span class="message-content">${escapeHtml(content)}</span><span class="timestamp">${timeStr}</span></div>`;
       } else {
         chat.innerHTML += `<div class="message"><span class="message-content">${escapeHtml(msg)}</span><span class="timestamp">${timeStr}</span></div>`;
@@ -180,10 +166,6 @@
     // WebSocket connection management
     function connect() {
       if (ws && ws.readyState === WebSocket.OPEN) return;
-      if (isKicked) {
-        console.log("Cannot reconnect - user was kicked");
-        return;
-      }
 
       console.log('Connecting to:', WEBSOCKET_SERVER);
       ws = new WebSocket(WEBSOCKET_SERVER);
@@ -240,17 +222,6 @@
             handleUsernameChanged(data);
             break;
 
-          case "kicked":
-            handleKicked(data);
-            break;
-
-          case "invalidUsername":
-            usernameError.classList.remove("hidden");
-            setTimeout(() => {
-              usernameError.classList.add("hidden");
-            }, 3000);
-            break;
-
           case "pong":
             handlePong(data);
             break;
@@ -271,8 +242,8 @@
         isAuthenticated = false;
         input.disabled = true;
         
-        // Don't auto-reconnect if logging out or kicked
-        if (isLoggingOut || isKicked) {
+        // Don't auto-reconnect if logging out
+        if (isLoggingOut) {
           isLoggingOut = false;
           return;
         }
@@ -311,7 +282,7 @@
     }
 
     function handleAuthenticated(data) {
-      console.log('Authenticated as:', data.username, 'color:', data.color);
+      console.log('✓ Authenticated as:', data.username, 'color:', data.color);
       username = data.username;
       myColor = data.color;
       
@@ -379,24 +350,6 @@
       showLoginNotification(username);
     }
 
-    function handleKicked(data) {
-      isKicked = true;
-      localStorage.removeItem("chatUsername");
-      addMessage(`⚠️ ${data.reason}`, Date.now());
-      
-      // Close connection
-      if (ws) {
-        ws.close();
-      }
-      
-      // Show reload prompt after 3 seconds
-      setTimeout(() => {
-        if (confirm("Has sido expulsado del chat. ¿Deseas recargar la página?")) {
-          location.reload();
-        }
-      }, 3000);
-    }
-
     function handlePong(data) {
       if (data.serverStartTime && serverStartTime && data.serverStartTime !== serverStartTime) {
         console.log("Server restart detected via ping!");
@@ -407,16 +360,6 @@
     // UI Event Handlers
     function submitUsername() {
       const name = usernameInput.value.trim();
-      
-      // Validate username
-      if (name && !validateUsername(name)) {
-        usernameError.classList.remove("hidden");
-        setTimeout(() => {
-          usernameError.classList.add("hidden");
-        }, 3000);
-        return;
-      }
-      
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         console.log('WebSocket not ready');
         return;
@@ -437,15 +380,6 @@
       if (e.key === "Enter") submitUsername();
     });
 
-    // Validate username as user types
-    usernameInput.addEventListener("input", (e) => {
-      if (e.target.value.includes(' ')) {
-        usernameError.classList.remove("hidden");
-      } else {
-        usernameError.classList.add("hidden");
-      }
-    });
-
     // Settings menu
     settingsBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -459,22 +393,13 @@
     });
 
     changeUsernameBtn.addEventListener("click", () => {
-      let newName = prompt("Ingresa tu nuevo nombre de usuario (sin espacios):", username);
-      
-      if (newName) {
-        newName = newName.trim();
-        if (!validateUsername(newName)) {
-          alert("Nombre inválido. No se permiten espacios y máximo 20 caracteres.");
-          return;
-        }
-        
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          isChangingUsername = true;
-          ws.send(JSON.stringify({ 
-            type: "changeUsername", 
-            newUsername: newName
-          }));
-        }
+      const newName = prompt("Ingresa tu nuevo nombre de usuario:", username);
+      if (newName && newName.trim() && ws && ws.readyState === WebSocket.OPEN) {
+        isChangingUsername = true;
+        ws.send(JSON.stringify({ 
+          type: "changeUsername", 
+          newUsername: newName.trim()
+        }));
       }
       settingsMenu.classList.add("hidden");
     });

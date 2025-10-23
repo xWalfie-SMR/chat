@@ -215,19 +215,6 @@ body {
   background: #cc7a00;
 }
 
-/* Error text */
-.error-text {
-  color: #f44336;
-  font-size: 0.9em;
-  margin-top: 5px;
-}
-
-/* Admin messages */
-.admin-message {
-  color: #ff9800 !important;
-  font-weight: bold;
-}
-
 /* Login success notification - green style */
 .notification-success {
   top: 20px;

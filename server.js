@@ -16,7 +16,6 @@ const usernames = new Set(); // Track all active usernames
 const messageHistory = []; // Store last 100 messages with timestamps
 const rateLimits = new Map(); // username -> { count, lastReset, mutedUntil }
 const disconnectTimeouts = new Map(); // deviceId -> timeoutId
-const bannedDevices = new Set(); // deviceIds that are banned
 
 const MAX_HISTORY = 100;
 const SERVER_START_TIME = Date.now();
@@ -61,23 +60,6 @@ app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
 // --- Helper Functions ---
 
-function validateUsername(name) {
-  // Remove spaces and validate
-  const cleaned = name.trim();
-  
-  // Check for spaces
-  if (cleaned.includes(' ')) {
-    return null;
-  }
-  
-  // Check length
-  if (cleaned.length === 0 || cleaned.length > 20) {
-    return null;
-  }
-  
-  return cleaned;
-}
-
 function getColorForDevice(deviceId) {
   const device = deviceConnections.get(deviceId);
   if (device && device.color) {
@@ -90,11 +72,7 @@ function getColorForDevice(deviceId) {
 }
 
 function generateUniqueUsername(requestedName) {
-  let baseName = validateUsername(requestedName || "anon");
-  
-  if (!baseName) {
-    baseName = "anon";
-  }
+  let baseName = requestedName.trim() || "anon";
 
   // If name is available, use it
   if (!usernames.has(baseName)) {
@@ -147,111 +125,6 @@ function sendToClient(ws, type, data) {
       console.error("Error sending to client:", err);
     }
   }
-}
-
-// Admin command handlers
-function kickUser(targetUsername, adminWs) {
-  let found = false;
-  
-  for (const [ws, clientData] of clients.entries()) {
-    if (clientData.username === targetUsername) {
-      found = true;
-      sendToClient(ws, "kicked", { reason: "Expulsado por un administrador" });
-      
-      // Clean up immediately
-      const deviceId = clientData.deviceId;
-      if (deviceId) {
-        bannedDevices.add(deviceId);
-        // Remove ban after 5 minutes
-        setTimeout(() => bannedDevices.delete(deviceId), 5 * 60 * 1000);
-      }
-      
-      cleanupClient(ws, true);
-      ws.close();
-      
-      broadcast(`[ADMIN] ${targetUsername} ha sido expulsado del chat.`);
-      console.log(`Admin kicked user: ${targetUsername}`);
-      break;
-    }
-  }
-  
-  if (!found) {
-    sendToClient(adminWs, "chat", {
-      msg: `Usuario "${targetUsername}" no encontrado.`,
-      timestamp: Date.now()
-    });
-  }
-}
-
-function removeMessages(targetUsername, adminWs) {
-  if (targetUsername.toLowerCase() === "all") {
-    // Clear all messages
-    messageHistory.length = 0;
-    broadcast("[ADMIN] Todos los mensajes han sido eliminados.");
-    console.log("Admin cleared all messages");
-  } else {
-    // Remove messages from specific user
-    const originalCount = messageHistory.length;
-    const pattern = new RegExp(`^\\[${targetUsername}\\]`);
-    
-    for (let i = messageHistory.length - 1; i >= 0; i--) {
-      if (pattern.test(messageHistory[i].msg)) {
-        messageHistory.splice(i, 1);
-      }
-    }
-    
-    const removed = originalCount - messageHistory.length;
-    if (removed > 0) {
-      broadcast(`[ADMIN] ${removed} mensajes de ${targetUsername} han sido eliminados.`);
-      console.log(`Admin removed ${removed} messages from ${targetUsername}`);
-    } else {
-      sendToClient(adminWs, "chat", {
-        msg: `No se encontraron mensajes de "${targetUsername}".`,
-        timestamp: Date.now()
-      });
-    }
-  }
-}
-
-function processAdminCommand(msg, ws) {
-  const clientData = clients.get(ws);
-  if (!clientData) return false;
-
-  // Check for /kick command
-  const kickMatch = msg.match(/^\/kick\s+(\S+)\s+(.+)$/);
-  if (kickMatch) {
-    const [, targetUser, password] = kickMatch;
-    
-    if (password !== ADMIN_PWD) {
-      sendToClient(ws, "chat", {
-        msg: "Contraseña de administrador incorrecta.",
-        timestamp: Date.now()
-      });
-      return true;
-    }
-    
-    kickUser(targetUser, ws);
-    return true;
-  }
-
-  // Check for /removeuser command
-  const removeMatch = msg.match(/^\/removeuser\s+(\S+)\s+(.+)$/);
-  if (removeMatch) {
-    const [, targetUser, password] = removeMatch;
-    
-    if (password !== ADMIN_PWD) {
-      sendToClient(ws, "chat", {
-        msg: "Contraseña de administrador incorrecta.",
-        timestamp: Date.now()
-      });
-      return true;
-    }
-    
-    removeMessages(targetUser, ws);
-    return true;
-  }
-
-  return false;
 }
 
 // ----- Spam Prevention -----
@@ -315,7 +188,7 @@ function cleanupClient(ws, immediate = false) {
   }
 
   if (immediate) {
-    // Immediate cleanup (logout button pressed or kicked)
+    // Immediate cleanup (logout button pressed)
     if (deviceConnections.get(deviceId)?.ws === ws) {
       deviceConnections.delete(deviceId);
       if (username) {
@@ -392,13 +265,6 @@ wss.on("connection", (ws) => {
           return;
         }
 
-        // Check if device is banned
-        if (bannedDevices.has(deviceId)) {
-          sendToClient(ws, "kicked", { reason: "Estás temporalmente baneado." });
-          ws.close();
-          return;
-        }
-
         // Cancel any pending disconnect timeout
         if (disconnectTimeouts.has(deviceId)) {
           clearTimeout(disconnectTimeouts.get(deviceId));
@@ -444,18 +310,7 @@ wss.on("connection", (ws) => {
           if (clientData.username) {
             usernames.delete(clientData.username);
           }
-          
-          // Validate and generate username
-          const validatedName = validateUsername(requestedName || "anon");
-          if (!validatedName) {
-            sendToClient(ws, "error", { 
-              msg: "Nombre de usuario inválido. No se permiten espacios." 
-            });
-            sendToClient(ws, "invalidUsername", {});
-            return;
-          }
-          
-          finalName = generateUniqueUsername(validatedName);
+          finalName = generateUniqueUsername(requestedName);
         }
 
         // Update all tracking
@@ -498,22 +353,13 @@ wss.on("connection", (ws) => {
         const oldUsername = clientData.username;
         const deviceId = clientData.deviceId;
 
-        // Validate new username
-        const validatedName = validateUsername(newUsername);
-        if (!validatedName) {
-          sendToClient(ws, "error", { 
-            msg: "Nombre de usuario inválido. No se permiten espacios." 
-          });
-          return;
-        }
-
         // Free old username
         if (oldUsername) {
           usernames.delete(oldUsername);
         }
 
         // Generate unique username
-        const finalName = generateUniqueUsername(validatedName);
+        const finalName = generateUniqueUsername(newUsername);
         
         // Update tracking (keep same color!)
         usernames.add(finalName);
@@ -570,13 +416,6 @@ wss.on("connection", (ws) => {
 
         if (!msg) return;
 
-        // Check for admin commands
-        if (msg.startsWith("/")) {
-          if (processAdminCommand(msg, ws)) {
-            return;
-          }
-        }
-
         // Check spam
         if (isSpamming(username)) {
           sendToClient(ws, "chat", {
@@ -610,5 +449,4 @@ server.listen(PORT, () => {
   console.log(
     `Server start time: ${new Date(SERVER_START_TIME).toISOString()}`
   );
-  console.log("Admin commands enabled:", ADMIN_PWD ? "YES" : "NO");
 });
