@@ -19,13 +19,6 @@
     </div>
   </div>
 
-  <!-- Login Success Notification -->
-  <div id="login-notification" class="notification notification-success hidden">
-    <div class="notification-content">
-      <p>✓ Conectado como <span id="login-username"></span></p>
-    </div>
-  </div>
-
   <!-- Reload Notification -->
   <div id="reload-notification" class="notification hidden">
     <div class="notification-content">
@@ -61,8 +54,6 @@
     const usernamePrompt = document.getElementById("username-prompt");
     const usernameInput = document.getElementById("username-input");
     const usernameSubmit = document.getElementById("username-submit");
-    const loginNotification = document.getElementById("login-notification");
-    const loginUsername = document.getElementById("login-username");
     const reloadNotification = document.getElementById("reload-notification");
     const reloadCountdown = document.getElementById("reload-countdown");
     const reloadNowBtn = document.getElementById("reload-now");
@@ -74,13 +65,11 @@
     // State
     let ws = null;
     let username = "";
-    let myColor = "";
     let isAuthenticated = false;
     let serverStartTime = null;
     let reconnectAttempt = 0;
     let reconnectTimer = null;
     let isChangingUsername = false;
-    let isLoggingOut = false;
     const userColors = {};
 
     // Generate or retrieve deviceId
@@ -93,7 +82,11 @@
 
     // Helper functions
     function getUserColor(name) {
-      return userColors[name] || 'usercolor0';
+      if (!userColors[name]) {
+        const index = Object.keys(userColors).length % 6;
+        userColors[name] = `usercolor${index}`;
+      }
+      return userColors[name];
     }
 
     function formatTime(timestamp) {
@@ -109,12 +102,7 @@
       return div.innerHTML;
     }
 
-    function addMessage(msg, timestamp, colors) {
-      // Update color mappings if provided
-      if (colors) {
-        Object.assign(userColors, colors);
-      }
-
+    function addMessage(msg, timestamp) {
       const nameMatch = msg.match(/^\[([^\]]+)\]/);
       let content = msg;
       let nameClass = "";
@@ -129,17 +117,6 @@
         chat.innerHTML += `<div class="message"><span class="message-content">${escapeHtml(msg)}</span><span class="timestamp">${timeStr}</span></div>`;
       }
       chat.scrollTop = chat.scrollHeight;
-    }
-
-    // Login success notification
-    function showLoginNotification(username) {
-      loginUsername.textContent = username;
-      loginNotification.classList.remove("hidden");
-      
-      // Auto-hide after 3 seconds
-      setTimeout(() => {
-        loginNotification.classList.add("hidden");
-      }, 3000);
     }
 
     // Reload notification
@@ -172,11 +149,12 @@
 
       ws.onopen = () => {
         console.log("✓ Connected to server");
+        reconnectAttempt = 0;
         
         // Get saved username
         const savedUsername = localStorage.getItem("chatUsername");
         
-        if (savedUsername && !isChangingUsername && !isLoggingOut) {
+        if (savedUsername && !isChangingUsername) {
           // Auto-authenticate with saved username
           console.log('Auto-authenticating with saved username:', savedUsername);
           ws.send(JSON.stringify({ 
@@ -185,16 +163,11 @@
             deviceId: deviceId,
             isReconnect: reconnectAttempt > 0
           }));
-        } else if (!isAuthenticated && !isLoggingOut) {
+        } else if (!isAuthenticated) {
           // Show username prompt
           usernamePrompt.classList.remove("hidden");
           usernameInput.focus();
         }
-
-        if (reconnectAttempt > 0) {
-          addMessage("✓ Reconectado al servidor", Date.now());
-        }
-        reconnectAttempt = 0;
       };
 
       ws.onmessage = (evt) => {
@@ -215,7 +188,7 @@
             break;
 
           case "chat":
-            addMessage(data.msg, data.timestamp || Date.now(), data.colors);
+            addMessage(data.msg, data.timestamp || Date.now());
             break;
 
           case "usernameChanged":
@@ -242,12 +215,6 @@
         isAuthenticated = false;
         input.disabled = true;
         
-        // Don't auto-reconnect if logging out
-        if (isLoggingOut) {
-          isLoggingOut = false;
-          return;
-        }
-
         // Auto-reconnect
         if (!reconnectTimer) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 30000);
@@ -282,15 +249,8 @@
     }
 
     function handleAuthenticated(data) {
-      console.log('✓ Authenticated as:', data.username, 'color:', data.color);
+      console.log('✓ Authenticated as:', data.username);
       username = data.username;
-      myColor = data.color;
-      
-      // Store my color in the mapping
-      if (data.color) {
-        userColors[username] = data.color;
-      }
-      
       isAuthenticated = true;
       isChangingUsername = false;
       input.disabled = false;
@@ -298,9 +258,6 @@
       
       // Hide username prompt if visible
       usernamePrompt.classList.add("hidden");
-      
-      // Show login notification
-      showLoginNotification(username);
       
       // Save username if not anonymous
       if (!username.toLowerCase().startsWith('anon')) {
@@ -315,30 +272,14 @@
 
     function handleHistory(data) {
       console.log('Loading history:', data.messages.length, 'messages');
-      
-      // Load color mappings first
-      if (data.colors) {
-        Object.assign(userColors, data.colors);
-      }
-      
-      // Then load messages
       data.messages.forEach((msgData) => {
-        addMessage(msgData.msg, msgData.timestamp, msgData.colors);
+        addMessage(msgData.msg, msgData.timestamp);
       });
     }
 
     function handleUsernameChanged(data) {
       console.log('Username changed from', data.oldUsername, 'to', data.username);
-      
-      // Keep the same color!
-      if (data.color) {
-        userColors[data.username] = data.color;
-        // Remove old username color mapping
-        delete userColors[data.oldUsername];
-      }
-      
       username = data.username;
-      myColor = data.color;
       isChangingUsername = false;
       
       // Save new username
@@ -346,8 +287,7 @@
         localStorage.setItem("chatUsername", username);
       }
       
-      // Show notification
-      showLoginNotification(username);
+      addMessage(`Tu nombre ha cambiado a: ${username}`, Date.now());
     }
 
     function handlePong(data) {
@@ -405,11 +345,7 @@
     });
 
     logoutBtn.addEventListener("click", () => {
-      isLoggingOut = true;
       localStorage.removeItem("chatUsername");
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "logout" }));
-      }
       if (ws) ws.close();
       setTimeout(() => location.reload(), 100);
     });

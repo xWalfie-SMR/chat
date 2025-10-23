@@ -11,19 +11,13 @@ const ADMIN_PWD = process.env.ADMIN_PWD;
 
 // Data structures
 const clients = new Map(); // ws -> { username, deviceId, authenticated }
-const deviceConnections = new Map(); // deviceId -> { ws, username, color }
+const deviceConnections = new Map(); // deviceId -> { ws, username }
 const usernames = new Set(); // Track all active usernames
 const messageHistory = []; // Store last 100 messages with timestamps
 const rateLimits = new Map(); // username -> { count, lastReset, mutedUntil }
-const disconnectTimeouts = new Map(); // deviceId -> timeoutId
 
 const MAX_HISTORY = 100;
 const SERVER_START_TIME = Date.now();
-const DISCONNECT_GRACE_PERIOD = 5000; // 5 seconds
-
-// Color assignment
-const COLORS = ['color0', 'color1', 'color2', 'color3', 'color4', 'color5'];
-let colorIndex = 0;
 
 // --- CORS ---
 app.use((req, res, next) => {
@@ -60,17 +54,6 @@ app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
 // --- Helper Functions ---
 
-function getColorForDevice(deviceId) {
-  const device = deviceConnections.get(deviceId);
-  if (device && device.color) {
-    return device.color;
-  }
-  // Assign new color
-  const color = COLORS[colorIndex % COLORS.length];
-  colorIndex++;
-  return color;
-}
-
 function generateUniqueUsername(requestedName) {
   let baseName = requestedName.trim() || "anon";
 
@@ -90,11 +73,9 @@ function generateUniqueUsername(requestedName) {
   return uniqueName;
 }
 
-function broadcast(msg, timestamp = Date.now(), excludeWs = null, includeColors = false) {
+function broadcast(msg, timestamp = Date.now(), excludeWs = null) {
   // Add to history
-  const historyEntry = { msg, timestamp };
-  if (includeColors) historyEntry.colors = includeColors;
-  messageHistory.push(historyEntry);
+  messageHistory.push({ msg, timestamp });
   if (messageHistory.length > MAX_HISTORY) {
     messageHistory.shift();
   }
@@ -107,9 +88,7 @@ function broadcast(msg, timestamp = Date.now(), excludeWs = null, includeColors 
       ws.readyState === WebSocket.OPEN
     ) {
       try {
-        const payload = { type: "chat", msg, timestamp };
-        if (includeColors) payload.colors = includeColors;
-        ws.send(JSON.stringify(payload));
+        ws.send(JSON.stringify({ type: "chat", msg, timestamp }));
       } catch (err) {
         console.error("Error broadcasting to client:", err);
       }
@@ -167,68 +146,26 @@ function isSpamming(username) {
   return false;
 }
 
-// Cleanup client connection with grace period
-function cleanupClient(ws, immediate = false) {
+// Cleanup client connection
+function cleanupClient(ws, silent = false) {
   const clientData = clients.get(ws);
   if (!clientData) return null;
 
   const { username, deviceId } = clientData;
 
-  // Remove from active clients
+  // Remove from tracking
   clients.delete(ws);
-
-  if (!deviceId) {
-    return { username, announced: false };
-  }
-
-  // Cancel any existing disconnect timeout
-  if (disconnectTimeouts.has(deviceId)) {
-    clearTimeout(disconnectTimeouts.get(deviceId));
-    disconnectTimeouts.delete(deviceId);
-  }
-
-  if (immediate) {
-    // Immediate cleanup (logout button pressed)
-    if (deviceConnections.get(deviceId)?.ws === ws) {
-      deviceConnections.delete(deviceId);
-      if (username) {
-        usernames.delete(username);
-        rateLimits.delete(username);
-      }
-    }
-    return { username, announced: true };
-  } else {
-    // Grace period cleanup
-    const timeoutId = setTimeout(() => {
-      disconnectTimeouts.delete(deviceId);
-      
-      // Check if still disconnected
-      const device = deviceConnections.get(deviceId);
-      if (!device || device.ws === ws || device.ws.readyState !== WebSocket.OPEN) {
-        // User didn't reconnect, announce departure
-        deviceConnections.delete(deviceId);
-        if (username) {
-          usernames.delete(username);
-          rateLimits.delete(username);
-          broadcast(`[${username}] ha salido del chat.`);
-        }
-      }
-    }, DISCONNECT_GRACE_PERIOD);
-
-    disconnectTimeouts.set(deviceId, timeoutId);
-    return { username, announced: false };
-  }
-}
-
-// Get color mapping for all active users
-function getActiveColors() {
-  const colors = {};
-  for (const [deviceId, device] of deviceConnections.entries()) {
-    if (device.username && device.color) {
-      colors[device.username] = device.color;
+  
+  // Only fully clean up if this is the active connection for this device
+  if (deviceId && deviceConnections.get(deviceId)?.ws === ws) {
+    deviceConnections.delete(deviceId);
+    if (username) {
+      usernames.delete(username);
+      rateLimits.delete(username);
     }
   }
-  return colors;
+
+  return { username, silent };
 }
 
 // --- WebSocket handling ---
@@ -265,23 +202,14 @@ wss.on("connection", (ws) => {
           return;
         }
 
-        // Cancel any pending disconnect timeout
-        if (disconnectTimeouts.has(deviceId)) {
-          clearTimeout(disconnectTimeouts.get(deviceId));
-          disconnectTimeouts.delete(deviceId);
-          console.log(`Cancelled disconnect timeout for device ${deviceId}`);
-        }
-
         // Check for existing connection from this device
         const existingDevice = deviceConnections.get(deviceId);
         let finalName;
         let isNewUser = true;
-        let color;
 
-        if (existingDevice) {
-          // Device exists
-          if (existingDevice.ws !== ws && existingDevice.ws.readyState === WebSocket.OPEN) {
-            // Close old connection
+        if (existingDevice && existingDevice.ws !== ws) {
+          // Close old connection
+          if (existingDevice.ws.readyState === WebSocket.OPEN) {
             try {
               sendToClient(existingDevice.ws, "replaced", {});
               existingDevice.ws.close();
@@ -290,18 +218,11 @@ wss.on("connection", (ws) => {
             }
           }
           
-          // Reuse username and color for reconnection
+          // Reuse the same username if reconnecting
           if (isReconnect && existingDevice.username) {
             finalName = existingDevice.username;
-            color = existingDevice.color;
             isNewUser = false;
-            console.log(`User ${finalName} reconnected within grace period`);
-          } else {
-            color = existingDevice.color || getColorForDevice(deviceId);
           }
-        } else {
-          // New device
-          color = getColorForDevice(deviceId);
         }
 
         // Generate new username if needed
@@ -318,25 +239,20 @@ wss.on("connection", (ws) => {
         clientData.username = finalName;
         clientData.deviceId = deviceId;
         clientData.authenticated = true;
-        deviceConnections.set(deviceId, { ws, username: finalName, color });
+        deviceConnections.set(deviceId, { ws, username: finalName });
 
-        // Send authentication success with color info
+        // Send authentication success
         sendToClient(ws, "authenticated", { 
           username: finalName,
-          color: color,
           serverStartTime: SERVER_START_TIME 
         });
 
-        // Send chat history with color mappings
-        const activeColors = getActiveColors();
-        sendToClient(ws, "history", { 
-          messages: messageHistory,
-          colors: activeColors 
-        });
+        // Send chat history
+        sendToClient(ws, "history", { messages: messageHistory });
 
-        // Broadcast join message only for truly new users
+        // Broadcast join message only for new users
         if (isNewUser && !isReconnect) {
-          broadcast(`[${finalName}] se ha unido al chat.`, Date.now(), null, getActiveColors());
+          broadcast(`[${finalName}] se ha unido al chat.`);
         }
 
         return;
@@ -351,7 +267,6 @@ wss.on("connection", (ws) => {
 
         const { newUsername } = data;
         const oldUsername = clientData.username;
-        const deviceId = clientData.deviceId;
 
         // Free old username
         if (oldUsername) {
@@ -361,39 +276,24 @@ wss.on("connection", (ws) => {
         // Generate unique username
         const finalName = generateUniqueUsername(newUsername);
         
-        // Update tracking (keep same color!)
+        // Update tracking
         usernames.add(finalName);
         clientData.username = finalName;
         
-        // Update device connection with same color
-        if (deviceId) {
-          const device = deviceConnections.get(deviceId);
-          if (device) {
-            device.username = finalName;
-            // Keep the same color!
-          }
+        // Update device connection
+        if (clientData.deviceId) {
+          deviceConnections.set(clientData.deviceId, { ws, username: finalName });
         }
 
-        // Notify client with their color
+        // Notify client
         sendToClient(ws, "usernameChanged", { 
           username: finalName,
-          oldUsername: oldUsername,
-          color: deviceConnections.get(deviceId)?.color
+          oldUsername: oldUsername 
         });
 
-        // Broadcast the change with updated colors
-        broadcast(`[${oldUsername}] ahora es [${finalName}]`, Date.now(), null, getActiveColors());
+        // Broadcast the change
+        broadcast(`[${oldUsername}] ahora es [${finalName}]`);
         
-        return;
-      }
-
-      // --- Handle logout ---
-      if (data.type === "logout") {
-        const username = clientData.username;
-        cleanupClient(ws, true); // Immediate cleanup
-        if (username) {
-          broadcast(`[${username}] ha salido del chat.`);
-        }
         return;
       }
 
@@ -425,7 +325,7 @@ wss.on("connection", (ws) => {
           return;
         }
 
-        broadcast(`[${username}]: ${msg}`, Date.now(), null, getActiveColors());
+        broadcast(`[${username}]: ${msg}`);
       }
     } catch (err) {
       console.error("Error processing message:", err);
@@ -434,13 +334,19 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
-    const result = cleanupClient(ws, false); // Use grace period
-    console.log(`WebSocket closed. Username: ${result?.username}, Announced: ${result?.announced}`);
+    const result = cleanupClient(ws);
+    if (result && result.username && !result.silent) {
+      // Only announce departure if this was the active connection
+      const deviceId = clients.get(ws)?.deviceId;
+      if (!deviceId || !deviceConnections.has(deviceId)) {
+        broadcast(`[${result.username}] ha salido del chat.`);
+      }
+    }
   });
 
   ws.on("error", (err) => {
     console.error("WebSocket error:", err);
-    cleanupClient(ws, false); // Use grace period
+    cleanupClient(ws, true);
   });
 });
 
