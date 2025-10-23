@@ -222,13 +222,20 @@ wss.on("connection", (ws) => {
           }
         }
 
-        // Check if changing username (same connection)
-        const isChangingUsername = clientData.authenticated && oldUsername;
-        if (isChangingUsername) {
-          usernames.delete(oldUsername);
+        // Reuse existing username if the device reconnects
+        const isReconnecting = existingWs && oldUsername;
+        if (isReconnecting) {
+          clientData.username = oldUsername;
+          clientData.deviceId = deviceId;
+          clientData.authenticated = true;
+          deviceConnections.set(deviceId, ws);
+
+          sendToClient(ws, "authenticated", { username: oldUsername });
+          sendToClient(ws, "history", { messages: messageHistory });
+          return;
         }
 
-        // Generate unique username
+        // Generate unique username for new connections
         const finalName = generateUniqueUsername(requestedName);
 
         // Update client data
@@ -247,13 +254,7 @@ wss.on("connection", (ws) => {
         // Only broadcast join/change if client is ready (not still showing prompt)
         // For auto-login, isReady will be true. For manual entry, wait for confirmation.
         if (isReady !== false) {
-          if (isChangingUsername) {
-            broadcast(
-              `[${oldUsername}] ahora es conocido como [${finalName}].`
-            );
-          } else {
-            broadcast(`[${finalName}] se ha unido al chat.`);
-          }
+          broadcast(`[${finalName}] se ha unido al chat.`);
         }
 
         return;
@@ -287,109 +288,6 @@ wss.on("connection", (ws) => {
           return;
         }
 
-        // Handle /kick command
-        if (msg.startsWith("/kick ")) {
-          const kickContent = msg.slice(6).trim();
-          const lastSpaceIndex = kickContent.lastIndexOf(" ");
-
-          if (lastSpaceIndex === -1) {
-            sendToClient(ws, "chat", {
-              msg: "Uso: /kick <nombre de usuario> <contraseña>",
-              timestamp: Date.now(),
-            });
-            return;
-          }
-
-          const targetName = kickContent.slice(0, lastSpaceIndex).trim();
-          const pwd = kickContent.slice(lastSpaceIndex + 1).trim();
-
-          if (!targetName || !pwd) {
-            sendToClient(ws, "chat", {
-              msg: "Uso: /kick <nombre de usuario> <contraseña>",
-              timestamp: Date.now(),
-            });
-            return;
-          }
-
-          if (pwd !== ADMIN_PWD) {
-            sendToClient(ws, "chat", {
-              msg: "Contraseña de administrador incorrecta.",
-              timestamp: Date.now(),
-            });
-            return;
-          }
-
-          // Prevent self-kick
-          if (targetName === username) {
-            sendToClient(ws, "chat", {
-              msg: "No puedes expulsarte a ti mismo.",
-              timestamp: Date.now(),
-            });
-            return;
-          }
-
-          // Find target client
-          let targetWs = null;
-          for (const [client, data] of clients.entries()) {
-            if (data.username === targetName && data.authenticated) {
-              targetWs = client;
-              break;
-            }
-          }
-
-          if (!targetWs) {
-            sendToClient(ws, "chat", {
-              msg: `Usuario [${targetName}] no encontrado.`,
-              timestamp: Date.now(),
-            });
-            return;
-          }
-
-          // Kick the user
-          cleanupClient(targetWs);
-          targetWs.close();
-          broadcast(
-            `El administrador [${username}] expulsó a [${targetName}] del chat.`
-          );
-          return;
-        }
-
-        // Handle /clearusers command
-        if (msg.startsWith("/clearusers")) {
-          const parts = msg.split(" ");
-          if (parts.length < 3) {
-            sendToClient(ws, "chat", {
-              msg: "Uso: /clearusers <nombre de usuario> <contraseña>",
-              timestamp: Date.now(),
-            });
-            return;
-          }
-
-          const targetUsername = parts.slice(1, -1).join(" ");
-          const pwd = parts[parts.length - 1];
-
-          if (pwd !== ADMIN_PWD) {
-            sendToClient(ws, "chat", {
-              msg: "Contraseña de administrador incorrecta.",
-              timestamp: Date.now(),
-            });
-            return;
-          }
-
-          // Disconnect all clients and clear usernames
-          for (const client of clients.keys()) {
-            client.close();
-          }
-          clients.clear();
-          usernames.clear();
-          deviceConnections.clear();
-          broadcast(
-            `Todos los usuarios han sido desconectados y los nombres de usuario han sido borrados por [${targetUsername}].`
-          );
-          return;
-        }
-
-        // Send normal message
         broadcast(`[${username}]: ${msg}`);
       }
     } catch (err) {
