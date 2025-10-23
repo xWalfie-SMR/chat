@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <title>Chat SMR</title>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -39,12 +42,13 @@
     <button id="settings-btn" class="settings-button" title="Cambiar usuario">⚙️</button>
   </div>
   <script>
-    // Determine WebSocket URL based on protocol
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${location.host}`;
-    console.log('Connecting to:', wsUrl);
+    // HARDCODED WebSocket server URL - DO NOT CHANGE
+    const WEBSOCKET_SERVER = 'wss://chat-cp1p.onrender.com';
     
-    const ws = new WebSocket(wsUrl);
+    console.log('=== CHAT CLIENT STARTING ===');
+    console.log('Connecting to WebSocket server:', WEBSOCKET_SERVER);
+    
+    const ws = new WebSocket(WEBSOCKET_SERVER);
     const chat = document.getElementById("chat");
     const input = document.getElementById("input");
     const usernamePrompt = document.getElementById("username-prompt");
@@ -69,10 +73,14 @@
     if (!deviceId) {
       deviceId = Math.random().toString(36).substring(2) + Date.now().toString(36);
       localStorage.setItem("deviceId", deviceId);
+      console.log('Generated new deviceId:', deviceId);
+    } else {
+      console.log('Using existing deviceId:', deviceId);
     }
 
     // Retrieve saved username
     const savedUsername = localStorage.getItem("chatUsername");
+    console.log('Saved username:', savedUsername || 'none');
 
     function getUserColor(name) {
       if (!userColors[name]) {
@@ -116,6 +124,7 @@
     function submitUsername() {
       if (!connectionReady) {
         console.log('Connection not ready yet');
+        addMessage('Esperando conexión al servidor...', Date.now());
         return;
       }
 
@@ -192,13 +201,14 @@
 
     // WebSocket open handler
     ws.onopen = () => {
-      console.log("Connected to server");
+      console.log("✓ Connected to server successfully");
       connectionReady = true;
+      addMessage('Conectado al servidor.', Date.now());
     };
 
     // WebSocket message handling
     ws.onmessage = (evt) => {
-      console.log('Received:', evt.data);
+      console.log('← Received:', evt.data);
       const data = JSON.parse(evt.data);
 
       if (data.type === "prompt") {
@@ -211,7 +221,7 @@
             payload.oldUsername = oldUsername;
             sessionStorage.removeItem("oldUsername");
           }
-          console.log('Auto-sending username:', payload);
+          console.log('→ Auto-sending username:', payload);
           ws.send(JSON.stringify(payload));
         } else if (!isAuthenticated) {
           usernamePrompt.classList.remove("hidden");
@@ -232,7 +242,7 @@
 
       else if (data.type === "authenticated") {
         // Server confirmed authentication
-        console.log('Authenticated as:', data.username);
+        console.log('✓ Authenticated as:', data.username);
         username = data.username;
         isAuthenticated = true;
         input.disabled = false;
@@ -263,14 +273,15 @@
     };
 
     ws.onclose = () => {
-      console.log("Disconnected from server");
+      console.log("✗ Disconnected from server");
       connectionReady = false;
       addMessage("Desconectado del servidor. Recarga la página para reconectar.", Date.now());
       input.disabled = true;
     };
 
     ws.onerror = (err) => {
-      console.error("WebSocket error:", err);
+      console.error("✗ WebSocket error:", err);
+      addMessage("Error de conexión. Verifica que el servidor esté activo.", Date.now());
     };
 
     // Send message
@@ -280,7 +291,9 @@
           console.log("Not authenticated yet");
           return;
         }
-        ws.send(JSON.stringify({ type: "chat", msg: input.value }));
+        const msg = input.value;
+        console.log('→ Sending message:', msg);
+        ws.send(JSON.stringify({ type: "chat", msg: msg }));
         input.value = "";
       }
     });
