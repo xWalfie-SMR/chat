@@ -39,7 +39,12 @@
     <button id="settings-btn" class="settings-button" title="Cambiar usuario">⚙️</button>
   </div>
   <script>
-    const ws = new WebSocket(`wss://${location.host}`);
+    // Determine WebSocket URL based on protocol
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${location.host}`;
+    console.log('Connecting to:', wsUrl);
+    
+    const ws = new WebSocket(wsUrl);
     const chat = document.getElementById("chat");
     const input = document.getElementById("input");
     const usernamePrompt = document.getElementById("username-prompt");
@@ -54,9 +59,10 @@
     const logoutBtn = document.getElementById("logout-btn");
 
     let username = "";
-    const userColors = {};
-    let serverStartTime = null;
     let isAuthenticated = false;
+    let serverStartTime = null;
+    let connectionReady = false;
+    const userColors = {};
 
     // Generate or retrieve deviceId
     let deviceId = localStorage.getItem("deviceId");
@@ -66,7 +72,7 @@
     }
 
     // Retrieve saved username
-    let savedUsername = localStorage.getItem("chatUsername");
+    const savedUsername = localStorage.getItem("chatUsername");
 
     function getUserColor(name) {
       if (!userColors[name]) {
@@ -84,7 +90,7 @@
     }
 
     function addMessage(msg, timestamp) {
-      let nameMatch = msg.match(/^\[([^\]]+)\]/);
+      const nameMatch = msg.match(/^\[([^\]]+)\]/);
       let content = msg;
       let nameClass = "";
       const timeStr = formatTime(timestamp);
@@ -93,24 +99,36 @@
         const name = nameMatch[1];
         content = msg.replace(/^\[[^\]]+\]/, "");
         nameClass = getUserColor(name);
-        chat.innerHTML += `<div class="message"><span class="username ${nameClass}">[${name}]</span><span class="message-content">${content}</span><span class="timestamp">${timeStr}</span></div>`;
+        chat.innerHTML += `<div class="message"><span class="username ${nameClass}">[${name}]</span><span class="message-content">${escapeHtml(content)}</span><span class="timestamp">${timeStr}</span></div>`;
       } else {
-        chat.innerHTML += `<div class="message"><span class="message-content">${msg}</span><span class="timestamp">${timeStr}</span></div>`;
+        chat.innerHTML += `<div class="message"><span class="message-content">${escapeHtml(msg)}</span><span class="timestamp">${timeStr}</span></div>`;
       }
       chat.scrollTop = chat.scrollHeight;
     }
 
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
     // Submit username
     function submitUsername() {
-      const name = usernameInput.value.trim() || "anon";
+      if (!connectionReady) {
+        console.log('Connection not ready yet');
+        return;
+      }
+
+      const name = usernameInput.value.trim();
       const oldUsername = sessionStorage.getItem("oldUsername");
 
-      const payload = { type: "username", msg: name, deviceId: deviceId };
+      const payload = { type: "username", msg: name || "anon", deviceId: deviceId };
       if (oldUsername) {
         payload.oldUsername = oldUsername;
         sessionStorage.removeItem("oldUsername");
       }
 
+      console.log('Sending username:', payload);
       ws.send(JSON.stringify(payload));
       usernamePrompt.classList.add("hidden");
     }
@@ -136,9 +154,13 @@
       if (username) {
         sessionStorage.setItem("oldUsername", username);
       }
-      localStorage.removeItem("chatUsername");
-      ws.close();
-      setTimeout(() => location.reload(), 100);
+      isAuthenticated = false;
+      username = "";
+      input.disabled = true;
+      usernamePrompt.classList.remove("hidden");
+      usernameInput.value = "";
+      usernameInput.focus();
+      settingsMenu.classList.add("hidden");
     });
 
     logoutBtn.addEventListener("click", () => {
@@ -168,11 +190,19 @@
       };
     }
 
+    // WebSocket open handler
+    ws.onopen = () => {
+      console.log("Connected to server");
+      connectionReady = true;
+    };
+
     // WebSocket message handling
     ws.onmessage = (evt) => {
+      console.log('Received:', evt.data);
       const data = JSON.parse(evt.data);
 
       if (data.type === "prompt") {
+        console.log('Received prompt, saved username:', savedUsername);
         // Auto-join with saved username if available
         if (savedUsername && !isAuthenticated) {
           const oldUsername = sessionStorage.getItem("oldUsername");
@@ -181,6 +211,7 @@
             payload.oldUsername = oldUsername;
             sessionStorage.removeItem("oldUsername");
           }
+          console.log('Auto-sending username:', payload);
           ws.send(JSON.stringify(payload));
         } else if (!isAuthenticated) {
           usernamePrompt.classList.remove("hidden");
@@ -189,16 +220,19 @@
       }
 
       else if (data.type === "serverInfo") {
-        serverStartTime = data.startTime;
+        const newStartTime = data.startTime;
         const lastKnownStart = sessionStorage.getItem("serverStartTime");
-        if (lastKnownStart && lastKnownStart !== serverStartTime.toString()) {
+        
+        if (lastKnownStart && lastKnownStart !== newStartTime.toString()) {
           showReloadNotification();
         }
-        sessionStorage.setItem("serverStartTime", serverStartTime.toString());
+        sessionStorage.setItem("serverStartTime", newStartTime.toString());
+        serverStartTime = newStartTime;
       }
 
       else if (data.type === "authenticated") {
         // Server confirmed authentication
+        console.log('Authenticated as:', data.username);
         username = data.username;
         isAuthenticated = true;
         input.disabled = false;
@@ -208,6 +242,7 @@
 
       else if (data.type === "history") {
         // Load chat history
+        console.log('Loading history:', data.messages.length, 'messages');
         data.messages.forEach((msgData) => {
           addMessage(msgData.msg, msgData.timestamp);
         });
@@ -225,6 +260,17 @@
         console.error("Server error:", data.msg);
         addMessage(`Error: ${data.msg}`, Date.now());
       }
+    };
+
+    ws.onclose = () => {
+      console.log("Disconnected from server");
+      connectionReady = false;
+      addMessage("Desconectado del servidor. Recarga la página para reconectar.", Date.now());
+      input.disabled = true;
+    };
+
+    ws.onerror = (err) => {
+      console.error("WebSocket error:", err);
     };
 
     // Send message
