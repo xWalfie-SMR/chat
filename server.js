@@ -636,7 +636,7 @@ wss.on("connection", (ws) => {
           }
 
           // Handle admin commands
-          if (messageStr.startsWith("/kick ")) {
+          if (messageStr.startsWith("/kick")) {
             const parts = messageStr.split(" ");
             if (parts.length < 3) {
               ws.send(
@@ -676,7 +676,7 @@ wss.on("connection", (ws) => {
           }
 
           // Handle removeuser command
-          if (messageStr.startsWith("/removeuser ")) {
+          if (messageStr.startsWith("/removeuser")) {
             const parts = messageStr.split(" ");
             if (parts.length < 3) {
               ws.send(
