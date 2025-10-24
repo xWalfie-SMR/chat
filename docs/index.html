@@ -291,6 +291,12 @@
               addMessage(data.msg, data.timestamp);
               break;
 
+            case "clearHistory":
+              // Clear the chat display
+              chat.innerHTML = "";
+              addMessage("[SISTEMA] El historial del chat ha sido limpiado.", Date.now());
+              break;
+
             case "usernameChanged":
               // Transfer color
               if (userColors[data.oldUsername]) {
