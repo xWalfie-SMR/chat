@@ -195,19 +195,36 @@ function escapeHtml(text) {
 }
 
 function kickUserPrompt(username) {
-  const seconds = prompt(`¿Por cuántos segundos quieres banear a ${username}?\n(Deja en blanco o escribe 0 para kick sin ban)`, '0');
-  
-  if (seconds === null) {
-    return; // User cancelled
-  }
-  
-  const banSeconds = parseInt(seconds, 10);
-  if (isNaN(banSeconds) || banSeconds < 0) {
+  // Mostrar modal de kick con opciones
+  document.getElementById('kick-modal').classList.remove('hidden');
+  document.getElementById('kick-username').textContent = username;
+  window._kickTarget = username;
+// Kick con tiempo predefinido
+function kickUserWithTime(seconds) {
+  const username = window._kickTarget;
+  if (!username) return;
+  kickUser(username, seconds);
+  closeKickModal();
+}
+
+// Kick con tiempo personalizado
+function kickUserCustomTime() {
+  const username = window._kickTarget;
+  if (!username) return;
+  const customSeconds = parseInt(document.getElementById('kick-custom-seconds').value, 10);
+  if (isNaN(customSeconds) || customSeconds < 0) {
     showResult('Tiempo inválido', true);
     return;
   }
-  
-  kickUser(username, banSeconds);
+  kickUser(username, customSeconds);
+  closeKickModal();
+}
+
+function closeKickModal() {
+  document.getElementById('kick-modal').classList.add('hidden');
+  window._kickTarget = null;
+  document.getElementById('kick-custom-seconds').value = '';
+}
 }
 
 async function kickUser(username, seconds = 0) {
