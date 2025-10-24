@@ -142,6 +142,28 @@ async function fetchStats() {
       `).join('');
     }
 
+    // Render banned users
+    const bannedList = document.getElementById('banned-list');
+    if (!data.bannedUsers || data.bannedUsers.length === 0) {
+      bannedList.innerHTML = '<p style="color: #888;">No banned users</p>';
+    } else {
+      bannedList.innerHTML = data.bannedUsers.map(banned => {
+        const minutes = Math.floor(banned.remainingSeconds / 60);
+        const seconds = banned.remainingSeconds % 60;
+        const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+        return `
+        <div class="user-item">
+          <div class="user-info">
+            <span class="username">${escapeHtml(banned.username)}</span>
+            <span class="device-id">${escapeHtml(banned.deviceId)}</span>
+            <span class="status" style="color: #e74c3c;">Banned (${timeStr})</span>
+          </div>
+          <button onclick="unbanUser('${escapeHtml(banned.username)}')" style="background: #27ae60;">Unban</button>
+        </div>
+      `;
+      }).join('');
+    }
+
     // Render messages
     const msgList = document.getElementById('message-list');
     if (data.messages.length === 0) {
@@ -298,6 +320,37 @@ async function broadcastMessage() {
       fetchStats();
     } else {
       showResult(data.error || 'Failed', true);
+    }
+  } catch (err) {
+    showResult('Request failed', true);
+  }
+}
+
+async function unbanUser(username) {
+  if (!confirm(`Are you sure you want to unban ${username}?`)) return;
+
+  try {
+    const res = await fetch(API_URL + '/api/admin/unban', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: JSON.stringify({ username })
+    });
+
+    if (res.status === 401) {
+      logout();
+      return;
+    }
+
+    const data = await res.json();
+    
+    if (data.success) {
+      showResult(`Unbanned ${username}`);
+      fetchStats();
+    } else {
+      showResult(data.error || 'Failed to unban user', true);
     }
   } catch (err) {
     showResult('Request failed', true);
