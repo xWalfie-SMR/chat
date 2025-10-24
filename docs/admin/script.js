@@ -22,15 +22,24 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  document.getElementById("custom-seconds").addEventListener("input", (e) => {
-    const value = parseInt(e.target.value, 10);
-    if (!isNaN(value) && value >= 0) {
-      selectedDuration = value;
-      document.querySelectorAll(".duration-btn").forEach((btn) => {
-        btn.classList.remove("active");
-      });
-    }
-  });
+  // Listen for custom seconds input
+  const customSecondsInput = document.getElementById("custom-seconds");
+  if (customSecondsInput) {
+    customSecondsInput.addEventListener("input", (e) => {
+      const value = parseInt(e.target.value, 10);
+      if (!isNaN(value) && value >= 0) {
+        selectedDuration = value;
+        document.querySelectorAll(".duration-btn").forEach((btn) => {
+          btn.classList.remove("active");
+        });
+      }
+    });
+    customSecondsInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        confirmKick();
+      }
+    });
+  }
 
   document.getElementById("kick-modal").addEventListener("click", (e) => {
     if (e.target.id === "kick-modal") {
@@ -153,24 +162,24 @@ async function fetchStats() {
     if (data.users.length === 0) {
       userList.innerHTML = '<div class="loading">No active users</div>';
     } else {
-      userList.innerHTML = data.users
-        .map(
-          (user) => `
-      <div class="user-item">
-        <div class="user-info">
+      userList.innerHTML = "";
+      data.users.forEach((user) => {
+        const userItem = document.createElement("div");
+        userItem.className = "user-item";
+        const userInfo = document.createElement("div");
+        userInfo.className = "user-info";
+        userInfo.innerHTML = `
           <span class="username">${escapeHtml(user.username)}</span>
           <span class="device-id">${escapeHtml(user.deviceId)}</span>
-          <span class="status">${
-            user.terminalMode ? "Terminal" : "Web"
-          }</span>
-        </div>
-        <button onclick="openKickModal('${escapeHtml(user.username)}')">
-          <i class="fas fa-user-times"></i> Kick
-        </button>
-      </div>
-    `
-        )
-        .join("");
+          <span class="status">${user.terminalMode ? "Terminal" : "Web"}</span>
+        `;
+        const kickBtn = document.createElement("button");
+        kickBtn.innerHTML = '<i class="fas fa-user-times"></i> Kick';
+        kickBtn.onclick = () => openKickModal(user.username);
+        userItem.appendChild(userInfo);
+        userItem.appendChild(kickBtn);
+        userList.appendChild(userItem);
+      });
     }
 
     const bannedList = document.getElementById("banned-list");
@@ -226,22 +235,27 @@ function escapeHtml(text) {
 function openKickModal(username) {
   currentKickUsername = username;
   selectedDuration = 0;
-
   document.getElementById("kick-username").textContent = username;
   document.getElementById("custom-seconds").value = "";
-
   document.querySelectorAll(".duration-btn").forEach((btn) => {
     btn.classList.remove("active");
     if (parseInt(btn.dataset.seconds) === 0) {
       btn.classList.add("active");
     }
   });
-
-  document.getElementById("kick-modal").classList.add("show");
+  const modal = document.getElementById("kick-modal");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.classList.add("show");
+  }
 }
 
 function closeKickModal() {
-  document.getElementById("kick-modal").classList.remove("show");
+  const modal = document.getElementById("kick-modal");
+  if (modal) {
+    modal.classList.remove("show");
+    modal.classList.add("hidden");
+  }
   currentKickUsername = null;
   selectedDuration = 0;
 }
@@ -261,16 +275,18 @@ function selectDuration(seconds) {
 async function confirmKick() {
   if (!currentKickUsername) return;
 
-  const customSeconds = document.getElementById("custom-seconds").value;
-  const banDuration = customSeconds
-    ? parseInt(customSeconds, 10)
-    : selectedDuration;
-
+  const customSecondsInput = document.getElementById("custom-seconds");
+  let banDuration = selectedDuration;
+  if (customSecondsInput && customSecondsInput.value) {
+    const customSeconds = parseInt(customSecondsInput.value, 10);
+    if (!isNaN(customSeconds) && customSeconds >= 0) {
+      banDuration = customSeconds;
+    }
+  }
   if (isNaN(banDuration) || banDuration < 0) {
     showResult("Invalid duration", true);
     return;
   }
-
   closeKickModal();
   await kickUser(currentKickUsername, banDuration);
 }
