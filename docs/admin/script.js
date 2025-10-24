@@ -1,25 +1,40 @@
 const API_URL = "https://chat-cp1p.onrender.com";
 let authToken = null;
 let statsInterval = null;
+let selectedDuration = 0;
+let currentKickUsername = null;
 
-// Check if already authenticated
 window.addEventListener('DOMContentLoaded', () => {
   authToken = sessionStorage.getItem('adminToken');
   if (authToken) {
     verifyAuth();
   }
 
-  // Handle Enter key on login
   document.getElementById('login-pwd').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       login();
     }
   });
 
-  // Handle Enter key on broadcast
   document.getElementById('broadcast-msg').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       broadcastMessage();
+    }
+  });
+
+  document.getElementById('custom-seconds').addEventListener('input', (e) => {
+    const value = parseInt(e.target.value, 10);
+    if (!isNaN(value) && value >= 0) {
+      selectedDuration = value;
+      document.querySelectorAll('.duration-btn').forEach(btn => {
+        btn.classList.remove('active');
+      });
+    }
+  });
+
+  document.getElementById('kick-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'kick-modal') {
+      closeKickModal();
     }
   });
 });
@@ -133,10 +148,9 @@ async function fetchStats() {
       document.getElementById('uptime').textContent = uptimeMinutes + 'm';
     }
 
-    // Render users
     const userList = document.getElementById('user-list');
     if (data.users.length === 0) {
-      userList.innerHTML = '<p style="color: #888;">No active users</p>';
+      userList.innerHTML = '<div class="loading">No active users</div>';
     } else {
       userList.innerHTML = data.users.map(user => `
         <div class="user-item">
@@ -145,7 +159,9 @@ async function fetchStats() {
             <span class="device-id">${escapeHtml(user.deviceId)}</span>
             <span class="status">${user.terminalMode ? 'Terminal' : 'Web'}</span>
           </div>
-          <button onclick="kickUserPrompt('${escapeHtml(user.username)}')">Kick</button>
+          <button onclick="openKickModal('${escapeHtml(user.username)}')">
+            <i class="fas fa-user-times"></i> Kick
+          </button>
         </div>
       `).join('');
     }
@@ -175,11 +191,11 @@ async function fetchStats() {
     // Render messages
     const msgList = document.getElementById('message-list');
     if (data.messages.length === 0) {
-      msgList.innerHTML = '<p style="color: #888;">No messages yet</p>';
+      msgList.innerHTML = '<div class="loading">No messages yet</div>';
     } else {
       msgList.innerHTML = data.messages.slice(-20).reverse().map(msg => {
         const time = new Date(msg.timestamp).toLocaleTimeString();
-        return `<div style="padding: 8px; border-bottom: 1px solid #3a3a3a;">${time} - ${escapeHtml(msg.msg)}</div>`;
+        return `<div>${time} - ${escapeHtml(msg.msg)}</div>`;
       }).join('');
     }
 
@@ -194,6 +210,54 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+function openKickModal(username) {
+  currentKickUsername = username;
+  selectedDuration = 0;
+  
+  document.getElementById('kick-username').textContent = username;
+  document.getElementById('custom-seconds').value = '';
+  
+  document.querySelectorAll('.duration-btn').forEach(btn => {
+    btn.classList.remove('active');
+    if (parseInt(btn.dataset.seconds) === 0) {
+      btn.classList.add('active');
+    }
+  });
+  
+  document.getElementById('kick-modal').classList.add('show');
+}
+
+function closeKickModal() {
+  document.getElementById('kick-modal').classList.remove('show');
+  currentKickUsername = null;
+  selectedDuration = 0;
+}
+
+function selectDuration(seconds) {
+  selectedDuration = seconds;
+  document.getElementById('custom-seconds').value = '';
+  
+  document.querySelectorAll('.duration-btn').forEach(btn => {
+    btn.classList.remove('active');
+    if (parseInt(btn.dataset.seconds) === seconds) {
+      btn.classList.add('active');
+    }
+  });
+}
+
+async function confirmKick() {
+  if (!currentKickUsername) return;
+  
+  const customSeconds = document.getElementById('custom-seconds').value;
+  const banDuration = customSeconds ? parseInt(customSeconds, 10) : selectedDuration;
+  
+  if (isNaN(banDuration) || banDuration < 0) {
+    showResult('Invalid duration', true);
+    return;
+  }
+  
+  closeKickModal();
+  await kickUser(currentKickUsername, banDuration);
 function kickUserPrompt(username) {
   // Mostrar modal visual, no prompt nativo
   document.getElementById('kick-modal').classList.remove('hidden');
@@ -247,9 +311,11 @@ async function kickUser(username, seconds = 0) {
     
     if (data.success) {
       if (seconds > 0) {
-        showResult(`Kicked ${username} for ${seconds} seconds`);
+        const minutes = Math.floor(seconds / 60);
+        const timeStr = minutes > 0 ? `${minutes} minute${minutes > 1 ? 's' : ''}` : `${seconds} second${seconds > 1 ? 's' : ''}`;
+        showResult(`✓ Kicked ${username} for ${timeStr}`);
       } else {
-        showResult(`Kicked ${username}`);
+        showResult(`✓ Kicked ${username}`);
       }
       fetchStats();
     } else {
@@ -261,7 +327,7 @@ async function kickUser(username, seconds = 0) {
 }
 
 async function clearAllUsers() {
-  if (!confirm('Are you sure you want to kick ALL users?')) return;
+  if (!confirm('⚠️ Are you sure you want to kick ALL users?')) return;
 
   try {
     const res = await fetch(API_URL + '/api/admin/kick-all', {
@@ -277,7 +343,7 @@ async function clearAllUsers() {
     const data = await res.json();
     
     if (data.success) {
-      showResult(`Kicked ${data.count} users`);
+      showResult(`✓ Kicked ${data.count} user${data.count > 1 ? 's' : ''}`);
       fetchStats();
     } else {
       showResult(data.error || 'Failed', true);
@@ -288,7 +354,7 @@ async function clearAllUsers() {
 }
 
 async function clearHistory() {
-  if (!confirm('Are you sure you want to clear chat history?')) return;
+  if (!confirm('⚠️ Are you sure you want to clear chat history?')) return;
 
   try {
     const res = await fetch(API_URL + '/api/admin/clear-history', {
@@ -304,7 +370,7 @@ async function clearHistory() {
     const data = await res.json();
     
     if (data.success) {
-      showResult('Chat history cleared');
+      showResult('✓ Chat history cleared');
       fetchStats();
     } else {
       showResult(data.error || 'Failed', true);
@@ -340,7 +406,7 @@ async function broadcastMessage() {
     const data = await res.json();
     
     if (data.success) {
-      showResult('Broadcast sent');
+      showResult('✓ Broadcast sent');
       document.getElementById('broadcast-msg').value = '';
       fetchStats();
     } else {
