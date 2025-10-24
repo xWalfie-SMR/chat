@@ -25,18 +25,18 @@ const colors = {
 };
 
 // --- DATA STRUCTURES ---
-const clients = new Map(); // ws -> { username, deviceId, authenticated, terminalMode }
-const deviceToUsername = new Map(); // deviceId -> username (for reconnection)
-const activeUsernames = new Set(); // Currently active usernames
-const disconnectionTimeouts = new Map(); // deviceId -> { timeout, username, timestamp }
-const messageHistory = [];
-const rateLimits = new Map();
-const bannedDevices = new Map(); // deviceId -> { expiresAt, username }
+const clients = new Map();                              // ws -> { username, deviceId, authenticated, terminalMode }
+const deviceToUsername = new Map();                     // deviceId -> username
+const activeUsernames = new Set();                      // Currently active usernames
+const disconnectionTimeouts = new Map();                // deviceId -> { timeout, username, timestamp }
+const messageHistory = [];                              // { msg, timestamp }[]
+const rateLimits = new Map();                           // username -> { count, lastReset, mutedUntil }
+const bannedDevices = new Map();                        // deviceId -> { expiresAt, username }
 
 const MAX_HISTORY = 100;
 const SERVER_START_TIME = Date.now();
 const MAX_USERNAME_LENGTH = 20;
-const RECONNECT_GRACE_PERIOD = 10 * 1000; // 10 seconds
+const RECONNECT_GRACE_PERIOD = 10 * 1000;
 
 // --- CORS ---
 app.use((req, res, next) => {
