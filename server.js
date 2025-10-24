@@ -371,14 +371,12 @@ wss.on("connection", (ws) => {
     username: null,
     deviceId: null,
     authenticated: false,
-    terminalMode: true, // Default to terminal mode
+    terminalMode: null, // Will be determined by first message
   });
 
-  // Send welcome message for terminal clients
-  ws.send(`${colors.green}Connected to chat server!${colors.reset}`);
-  ws.send(`${colors.cyan}Enter your username: ${colors.reset}`);
-
-  sendToClient(ws, "serverInfo", { startTime: SERVER_START_TIME });
+  // Don't send initial messages yet - wait to determine if terminal or web client
+  // Web clients will send JSON auth message first
+  // Terminal clients will send plain text username
 
   ws.on("message", (message) => {
     try {
@@ -390,7 +388,23 @@ wss.on("connection", (ws) => {
 
       const messageStr = message.toString().trim();
 
-      // If JSON is received, switch to JSON mode
+      // Determine client mode on first message
+      if (clientData.terminalMode === null) {
+        if (messageStr.startsWith("{")) {
+          // Web client detected
+          clientData.terminalMode = false;
+          // Send serverInfo to web clients
+          sendToClient(ws, "serverInfo", { startTime: SERVER_START_TIME });
+        } else {
+          // Terminal client detected
+          clientData.terminalMode = true;
+          // Send welcome messages to terminal clients
+          ws.send(`${colors.green}Connected to chat server!${colors.reset}`);
+          ws.send(`${colors.cyan}Enter your username: ${colors.reset}`);
+        }
+      }
+
+      // If JSON is received, process as web client
       if (messageStr.startsWith("{")) {
         clientData.terminalMode = false;
 
