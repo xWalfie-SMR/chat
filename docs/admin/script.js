@@ -52,8 +52,16 @@ async function login() {
       document.getElementById('login-pwd').value = '';
     }
   } catch (err) {
-    errorDiv.textContent = 'Connection error';
+    let errorMsg = 'Connection error';
+    if (err && err.message) {
+      errorMsg += ': ' + err.message;
+    }
+    if (err && err.name) {
+      errorMsg += ' (' + err.name + ')';
+    }
+    errorDiv.textContent = errorMsg;
     errorDiv.classList.add('show');
+    console.error('Login error:', err);
   }
 }
 
