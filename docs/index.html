@@ -272,7 +272,15 @@
         };
 
         ws.onmessage = (evt) => {
-          const data = JSON.parse(evt.data);
+          // Try to parse as JSON, ignore if it's plain text (for terminal messages)
+          let data;
+          try {
+            data = JSON.parse(evt.data);
+          } catch (e) {
+            // Ignore non-JSON messages (they're meant for terminal clients)
+            console.log("Received non-JSON message:", evt.data);
+            return;
+          }
 
           switch (data.type) {
             case "serverInfo":
