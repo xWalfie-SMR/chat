@@ -373,18 +373,21 @@ body {
 .logout-btn {
   padding: 12px 24px !important;
   background: var(--accent-danger) !important;
-  font-size: 14px !important;
+  box-shadow: rgba(255, 88, 88, 1) 0px 0px 15px !important;
+  color: var(--text-primary) !important;
+  font-size: 18px !important;
   border-radius: 10px !important;
   display: flex !important;
   align-items: center !important;
   gap: 8px !important;
-  transition: all 0.3s ease !important;
+  transition: all 0.2s ease !important;
+  border: none !important;
 }
 
 .logout-btn:hover {
-  background: #ee5a52 !important;
-  transform: translateY(-2px) !important;
-  box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4) !important;
+  background: #ff7b74 !important;
+  transform: scale(1.08) !important;
+  box-shadow: rgb(255, 120, 120) 0px 0px 15px !important;
 }
 
 .section {
@@ -426,11 +429,11 @@ body {
   display: flex;
   align-items: center;
   gap: 20px;
-  transition: all 0.3s ease;
+  transition: all 0.4s ease;
 }
 
 .stat-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-4px) scale(1.02);
   box-shadow: var(--shadow-hover);
   border-color: var(--accent-primary);
 }
@@ -518,7 +521,7 @@ body {
 }
 
 .action-btn.warning {
-  background: linear-gradient(135deg, #feca57, #ff9ff3);
+  background: linear-gradient(135deg, #9b7a34, #c7a88b);
   box-shadow: 0 4px 15px rgba(254, 202, 87, 0.3);
 }
 
@@ -573,12 +576,12 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  transition: all 0.3s ease;
+  transition: all 0.4s ease;
 }
 
 .user-item:hover {
   border-color: var(--accent-primary);
-  transform: translateX(5px);
+  transform: scale(1.02);
   background: linear-gradient(90deg, #23272f 60%, #2a2a2a 100%);
   padding: 16px 20px;
   border-radius: 10px;
@@ -586,10 +589,10 @@ body {
   justify-content: space-between;
   align-items: center;
   box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-  transition: box-shadow 0.2s;
+  transition: all 0.2s;
 }
 .user-item:hover {
-  box-shadow: 0 4px 16px rgba(76,175,80,0.12);
+  box-shadow: 0 4px 16px rgba(109, 253, 114, 0.12);
 }
 
 .user-info {
@@ -640,9 +643,7 @@ body {
 
 .user-item button:hover {
   background: #ee5a52;
-  transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
-  color: #4CAF50;
   font-weight: bold;
   font-size: 1.1em;
 }
@@ -650,29 +651,6 @@ body {
 .device-id {
   color: #bdbdbd;
   font-size: 13px;
-}
-
-.status {
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  background: #4CAF50;
-  color: #fff;
-  font-weight: 500;
-}
-
-.user-item button {
-  background: #e74c3c;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.user-item button:hover {
-  background: #c0392b;
 }
 
 .message-list {
