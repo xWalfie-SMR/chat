@@ -31,6 +31,7 @@ const activeUsernames = new Set(); // Currently active usernames
 const disconnectionTimeouts = new Map(); // deviceId -> { timeout, username, timestamp }
 const messageHistory = [];
 const rateLimits = new Map();
+const bannedDevices = new Map(); // deviceId -> { expiresAt, username }
 
 const MAX_HISTORY = 100;
 const SERVER_START_TIME = Date.now();
@@ -248,6 +249,37 @@ function isSpamming(username) {
   return false;
 }
 
+// --- DEVICE BAN MANAGEMENT ---
+function cleanExpiredBans() {
+  const now = Date.now();
+  for (const [deviceId, banInfo] of bannedDevices.entries()) {
+    if (now >= banInfo.expiresAt) {
+      bannedDevices.delete(deviceId);
+      console.log(`[BAN EXPIRED] ${deviceId} (${banInfo.username})`);
+    }
+  }
+}
+
+function isDeviceBanned(deviceId) {
+  if (!deviceId) return false;
+  
+  cleanExpiredBans();
+  
+  if (bannedDevices.has(deviceId)) {
+    const banInfo = bannedDevices.get(deviceId);
+    const remainingTime = Math.ceil((banInfo.expiresAt - Date.now()) / 1000);
+    return { banned: true, remainingTime, username: banInfo.username };
+  }
+  
+  return { banned: false };
+}
+
+function banDevice(deviceId, username, durationSeconds) {
+  const expiresAt = Date.now() + (durationSeconds * 1000);
+  bannedDevices.set(deviceId, { expiresAt, username });
+  console.log(`[BANNED] ${deviceId} (${username}) for ${durationSeconds} seconds`);
+}
+
 // --- CLEANUP WITH GRACE PERIOD ---
 function scheduleCleanup(ws) {
   const clientData = clients.get(ws);
@@ -393,6 +425,16 @@ wss.on("connection", (ws) => {
             return;
           }
 
+          // Check if device is banned
+          const banStatus = isDeviceBanned(deviceId);
+          if (banStatus.banned) {
+            sendToClient(ws, "error", { 
+              msg: `Tu dispositivo ha sido expulsado. Podrás volver a entrar en ${banStatus.remainingTime} segundos.` 
+            });
+            ws.close();
+            return;
+          }
+
           let finalUsername;
           let announceJoin = true;
           let isQuickReconnect = false;
@@ -515,16 +557,25 @@ wss.on("connection", (ws) => {
           if (msg.startsWith("/")) {
             if (msg.startsWith("/kick ")) {
               const parts = msg.split(" ");
-              if (parts.length < 3) {
+              if (parts.length < 4) {
                 sendToClient(ws, "chat", {
-                  msg: "Uso: /kick <usuario> <ADMIN_PWD>",
+                  msg: "Uso: /kick <usuario> <segundos> <ADMIN_PWD>",
                   timestamp: Date.now(),
                 });
                 return;
               }
 
               const targetUser = parts[1];
-              const pwd = parts[2];
+              const seconds = parseInt(parts[2], 10);
+              const pwd = parts[3];
+
+              if (isNaN(seconds) || seconds < 0) {
+                sendToClient(ws, "chat", {
+                  msg: "El tiempo debe ser un número válido de segundos.",
+                  timestamp: Date.now(),
+                });
+                return;
+              }
 
               if (pwd !== ADMIN_PWD) {
                 sendToClient(ws, "chat", {
@@ -535,8 +586,10 @@ wss.on("connection", (ws) => {
               }
 
               let kicked = false;
+              let kickedDeviceId = null;
               for (const [client, data] of clients.entries()) {
                 if (data.username === targetUser && data.authenticated) {
+                  kickedDeviceId = data.deviceId;
                   immediateCleanup(client);
                   client.close();
                   kicked = true;
@@ -545,9 +598,16 @@ wss.on("connection", (ws) => {
               }
 
               if (kicked) {
-                broadcast(
-                  `[${targetUser}] ha sido expulsado por [${username}].`
-                );
+                if (kickedDeviceId && seconds > 0) {
+                  banDevice(kickedDeviceId, targetUser, seconds);
+                  broadcast(
+                    `[${targetUser}] ha sido expulsado por [${username}] durante ${seconds} segundos.`
+                  );
+                } else {
+                  broadcast(
+                    `[${targetUser}] ha sido expulsado por [${username}].`
+                  );
+                }
               } else {
                 sendToClient(ws, "chat", {
                   msg: `Usuario [${targetUser}] no encontrado.`,
@@ -644,15 +704,23 @@ wss.on("connection", (ws) => {
           // Handle admin commands
           if (messageStr.startsWith("/kick")) {
             const parts = messageStr.split(" ");
-            if (parts.length < 3) {
+            if (parts.length < 4) {
               ws.send(
-                `${colors.yellow}Uso: /kick <usuario> <ADMIN_PWD>${colors.reset}`
+                `${colors.yellow}Uso: /kick <usuario> <segundos> <ADMIN_PWD>${colors.reset}`
               );
               return;
             }
 
             const targetUser = parts[1];
-            const pwd = parts[2];
+            const seconds = parseInt(parts[2], 10);
+            const pwd = parts[3];
+
+            if (isNaN(seconds) || seconds < 0) {
+              ws.send(
+                `${colors.red}El tiempo debe ser un número válido de segundos.${colors.reset}`
+              );
+              return;
+            }
 
             if (pwd !== ADMIN_PWD) {
               ws.send(`${colors.red}Contraseña incorrecta.${colors.reset}`);
@@ -660,8 +728,10 @@ wss.on("connection", (ws) => {
             }
 
             let kicked = false;
+            let kickedDeviceId = null;
             for (const [client, data] of clients.entries()) {
               if (data.username === targetUser && data.authenticated) {
+                kickedDeviceId = data.deviceId;
                 immediateCleanup(client);
                 client.close();
                 kicked = true;
@@ -670,9 +740,16 @@ wss.on("connection", (ws) => {
             }
 
             if (kicked) {
-              broadcast(
-                `[${targetUser}] ha sido expulsado por [${clientData.username}].`
-              );
+              if (kickedDeviceId && seconds > 0) {
+                banDevice(kickedDeviceId, targetUser, seconds);
+                broadcast(
+                  `[${targetUser}] ha sido expulsado por [${clientData.username}] durante ${seconds} segundos.`
+                );
+              } else {
+                broadcast(
+                  `[${targetUser}] ha sido expulsado por [${clientData.username}].`
+                );
+              }
             } else {
               ws.send(
                 `${colors.red}Usuario [${targetUser}] no encontrado.${colors.reset}`
@@ -808,16 +885,28 @@ app.get("/api/admin/stats", verifyAdminToken, (req, res) => {
 
 // Kick user (protected)
 app.post("/api/admin/kick", verifyAdminToken, (req, res) => {
-  const { username } = req.body;
+  const { username, seconds } = req.body;
 
   let kicked = false;
+  let kickedDeviceId = null;
   for (const [client, data] of clients.entries()) {
     if (data.username === username && data.authenticated) {
+      kickedDeviceId = data.deviceId;
       immediateCleanup(client);
       client.close();
       kicked = true;
-      broadcast(`[${username}] ha sido expulsado por el administrador.`);
       break;
+    }
+  }
+
+  if (kicked) {
+    const banDuration = seconds && parseInt(seconds, 10) > 0 ? parseInt(seconds, 10) : 0;
+    
+    if (kickedDeviceId && banDuration > 0) {
+      banDevice(kickedDeviceId, username, banDuration);
+      broadcast(`[${username}] ha sido expulsado por el administrador durante ${banDuration} segundos.`);
+    } else {
+      broadcast(`[${username}] ha sido expulsado por el administrador.`);
     }
   }
 
@@ -842,7 +931,22 @@ app.post("/api/admin/kick-all", verifyAdminToken, (req, res) => {
 // Clear history (protected)
 app.post("/api/admin/clear-history", verifyAdminToken, (req, res) => {
   messageHistory.length = 0;
-  broadcast(`[SISTEMA] El historial del chat ha sido limpiado.`);
+  
+  // Send a special clearHistory message to all clients
+  for (const [ws, clientData] of clients.entries()) {
+    if (clientData.authenticated && ws.readyState === WebSocket.OPEN) {
+      try {
+        if (clientData.terminalMode) {
+          ws.send(`${colors.cyan}[SISTEMA] El historial del chat ha sido limpiado.${colors.reset}`);
+        } else {
+          ws.send(JSON.stringify({ type: "clearHistory" }));
+        }
+      } catch (err) {
+        console.error("Clear history broadcast error:", err);
+      }
+    }
+  }
+  
   res.json({ success: true });
 });
 

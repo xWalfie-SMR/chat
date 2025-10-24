@@ -137,7 +137,7 @@ async function fetchStats() {
             <span class="device-id">${escapeHtml(user.deviceId)}</span>
             <span class="status">${user.terminalMode ? 'Terminal' : 'Web'}</span>
           </div>
-          <button onclick="kickUser('${escapeHtml(user.username)}')">Kick</button>
+          <button onclick="kickUserPrompt('${escapeHtml(user.username)}')">Kick</button>
         </div>
       `).join('');
     }
@@ -164,7 +164,23 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-async function kickUser(username) {
+function kickUserPrompt(username) {
+  const seconds = prompt(`¿Por cuántos segundos quieres banear a ${username}?\n(Deja en blanco o escribe 0 para kick sin ban)`, '0');
+  
+  if (seconds === null) {
+    return; // User cancelled
+  }
+  
+  const banSeconds = parseInt(seconds, 10);
+  if (isNaN(banSeconds) || banSeconds < 0) {
+    showResult('Tiempo inválido', true);
+    return;
+  }
+  
+  kickUser(username, banSeconds);
+}
+
+async function kickUser(username, seconds = 0) {
   try {
     const res = await fetch(API_URL + '/api/admin/kick', {
       method: 'POST',
@@ -172,7 +188,7 @@ async function kickUser(username) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${authToken}`
       },
-      body: JSON.stringify({ username })
+      body: JSON.stringify({ username, seconds })
     });
 
     if (res.status === 401) {
@@ -183,7 +199,11 @@ async function kickUser(username) {
     const data = await res.json();
     
     if (data.success) {
-      showResult(`Kicked ${username}`);
+      if (seconds > 0) {
+        showResult(`Kicked ${username} for ${seconds} seconds`);
+      } else {
+        showResult(`Kicked ${username}`);
+      }
       fetchStats();
     } else {
       showResult(data.error || 'Failed to kick user', true);
