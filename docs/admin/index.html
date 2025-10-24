@@ -90,6 +90,30 @@
       <div class="user-list" id="user-list">
         <div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
       </div>
+      <!-- Kick Modal -->
+      <div id="kick-modal" class="modal hidden">
+        <div class="modal-content">
+          <h3>Kick User: <span id="kick-username"></span></h3>
+          <div class="kick-options">
+            <button onclick="kickUserWithTime(30)">30s</button>
+            <button onclick="kickUserWithTime(300)">5min</button>
+            <button onclick="kickUserWithTime(3600)">1h</button>
+            <button onclick="kickUserWithTime(0)">Permanent</button>
+          </div>
+          <div class="kick-custom">
+            <input type="number" id="kick-custom-seconds" min="0" placeholder="Custom seconds" />
+            <button onclick="kickUserCustomTime()">Kick</button>
+          </div>
+          <button onclick="closeKickModal()" style="margin-top:10px;">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Banned Users</h2>
+      <div class="user-list" id="banned-list">
+        <p style="color: #888;">Loading...</p>
+      </div>
     </div>
 
     <div class="section">
@@ -160,5 +184,6 @@
   </div>
 
   <script src="script.js?v=3"></script>
+  <script src="./script.js?v=2"></script>
 </body>
 </html>

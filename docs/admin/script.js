@@ -67,10 +67,18 @@ async function login() {
       document.getElementById('login-pwd').value = '';
     }
   } catch (err) {
-    errorDiv.textContent = 'Connection error';
+    let errorMsg = 'Connection error';
+    if (err && err.message) {
+      errorMsg += ': ' + err.message;
+    }
+    if (err && err.name) {
+      errorMsg += ' (' + err.name + ')';
+    }
+    errorDiv.textContent = errorMsg;
     errorDiv.classList.add('show');
+    console.error('Login error:', err);
   }
-}
+// Fin de funciones kick modal
 
 async function verifyAuth() {
   try {
@@ -158,6 +166,29 @@ async function fetchStats() {
       `).join('');
     }
 
+    // Render banned users
+    const bannedList = document.getElementById('banned-list');
+    if (!data.bannedUsers || data.bannedUsers.length === 0) {
+      bannedList.innerHTML = '<p style="color: #888;">No banned users</p>';
+    } else {
+      bannedList.innerHTML = data.bannedUsers.map(banned => {
+        const minutes = Math.floor(banned.remainingSeconds / 60);
+        const seconds = banned.remainingSeconds % 60;
+        const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+        return `
+        <div class="user-item">
+          <div class="user-info">
+            <span class="username">${escapeHtml(banned.username)}</span>
+            <span class="device-id">${escapeHtml(banned.deviceId)}</span>
+            <span class="status" style="color: #e74c3c;">Banned (${timeStr})</span>
+          </div>
+          <button onclick="unbanUser('${escapeHtml(banned.username)}')" style="background: #27ae60;">Unban</button>
+        </div>
+      `;
+      }).join('');
+    }
+
+    // Render messages
     const msgList = document.getElementById('message-list');
     if (data.messages.length === 0) {
       msgList.innerHTML = '<div class="loading">No messages yet</div>';
@@ -227,6 +258,37 @@ async function confirmKick() {
   
   closeKickModal();
   await kickUser(currentKickUsername, banDuration);
+function kickUserPrompt(username) {
+  // Mostrar modal visual, no prompt nativo
+  document.getElementById('kick-modal').classList.remove('hidden');
+  document.getElementById('kick-username').textContent = username;
+  window._kickTarget = username;
+}
+
+window.kickUserWithTime = function(seconds) {
+  const username = window._kickTarget;
+  if (!username) return;
+  kickUser(username, seconds);
+  closeKickModal();
+}
+
+window.kickUserCustomTime = function() {
+  const username = window._kickTarget;
+  if (!username) return;
+  const customSeconds = parseInt(document.getElementById('kick-custom-seconds').value, 10);
+  if (isNaN(customSeconds) || customSeconds < 0) {
+    showResult('Tiempo inválido', true);
+    return;
+  }
+  kickUser(username, customSeconds);
+  closeKickModal();
+}
+
+window.closeKickModal = function() {
+  document.getElementById('kick-modal').classList.add('hidden');
+  window._kickTarget = null;
+  document.getElementById('kick-custom-seconds').value = '';
+}
 }
 
 async function kickUser(username, seconds = 0) {
@@ -349,6 +411,37 @@ async function broadcastMessage() {
       fetchStats();
     } else {
       showResult(data.error || 'Failed', true);
+    }
+  } catch (err) {
+    showResult('Request failed', true);
+  }
+}
+
+async function unbanUser(username) {
+  if (!confirm(`Are you sure you want to unban ${username}?`)) return;
+
+  try {
+    const res = await fetch(API_URL + '/api/admin/unban', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: JSON.stringify({ username })
+    });
+
+    if (res.status === 401) {
+      logout();
+      return;
+    }
+
+    const data = await res.json();
+    
+    if (data.success) {
+      showResult(`Unbanned ${username}`);
+      fetchStats();
+    } else {
+      showResult(data.error || 'Failed to unban user', true);
     }
   } catch (err) {
     showResult('Request failed', true);
