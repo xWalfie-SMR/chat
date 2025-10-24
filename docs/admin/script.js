@@ -63,7 +63,7 @@ async function login() {
     errorDiv.classList.add('show');
     console.error('Login error:', err);
   }
-}
+// Fin de funciones kick modal
 
 async function verifyAuth() {
   try {
@@ -199,16 +199,16 @@ function kickUserPrompt(username) {
   document.getElementById('kick-modal').classList.remove('hidden');
   document.getElementById('kick-username').textContent = username;
   window._kickTarget = username;
-// Kick con tiempo predefinido
-function kickUserWithTime(seconds) {
+}
+
+window.kickUserWithTime = function(seconds) {
   const username = window._kickTarget;
   if (!username) return;
   kickUser(username, seconds);
   closeKickModal();
 }
 
-// Kick con tiempo personalizado
-function kickUserCustomTime() {
+window.kickUserCustomTime = function() {
   const username = window._kickTarget;
   if (!username) return;
   const customSeconds = parseInt(document.getElementById('kick-custom-seconds').value, 10);
@@ -220,7 +220,7 @@ function kickUserCustomTime() {
   closeKickModal();
 }
 
-function closeKickModal() {
+window.closeKickModal = function() {
   document.getElementById('kick-modal').classList.add('hidden');
   window._kickTarget = null;
   document.getElementById('kick-custom-seconds').value = '';
