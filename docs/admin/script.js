@@ -195,7 +195,7 @@ function escapeHtml(text) {
 }
 
 function kickUserPrompt(username) {
-  // Mostrar modal de kick con opciones
+  // Mostrar modal visual, no prompt nativo
   document.getElementById('kick-modal').classList.remove('hidden');
   document.getElementById('kick-username').textContent = username;
   window._kickTarget = username;
