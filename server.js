@@ -50,21 +50,27 @@ app.use((req, res, next) => {
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization"
+    );
     res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization"
+    );
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   }
   if (req.method === "OPTIONS") {
     res.sendStatus(200);
     return;
   }
-  
+
   // Handle preflight requests
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
-  
+
   next();
 });
 
@@ -94,6 +100,21 @@ function sanitizeUsername(username) {
   // Remove spaces, special characters, keep only alphanumeric and underscores
   const sanitized = username.replace(/[^a-zA-Z0-9_]/g, "");
 
+  // Reserved words not allowed as usernames
+  const reservedUsernames = [
+    "admin",
+    "manager",
+    "administrator",
+    "mod",
+    "moderator",
+    "root",
+    "system",
+    "owner",
+  ];
+  if (reservedUsernames.includes(sanitized.toLowerCase())) {
+    return "anon";
+  }
+
   // Ensure it's not empty and has reasonable length
   if (sanitized.length === 0) {
     return "anon";
@@ -107,12 +128,14 @@ function sanitizeUsername(username) {
 }
 
 function getUserColor(username) {
-  // Simple hash to assign consistent colors to usernames
+  // Make [ADMIN] always white
+  if (username.toUpperCase() === "ADMIN") {
+    return colors.white;
+  }
   let hash = 0;
   for (let i = 0; i < username.length; i++) {
     hash = username.charCodeAt(i) + ((hash << 5) - hash);
   }
-
   const userColors = [
     colors.red,
     colors.green,
@@ -277,22 +300,24 @@ function cleanExpiredBans() {
 
 function isDeviceBanned(deviceId) {
   if (!deviceId) return false;
-  
+
   cleanExpiredBans();
-  
+
   if (bannedDevices.has(deviceId)) {
     const banInfo = bannedDevices.get(deviceId);
     const remainingTime = Math.ceil((banInfo.expiresAt - Date.now()) / 1000);
     return { banned: true, remainingTime, username: banInfo.username };
   }
-  
+
   return { banned: false };
 }
 
 function banDevice(deviceId, username, durationSeconds) {
-  const expiresAt = Date.now() + (durationSeconds * 1000);
+  const expiresAt = Date.now() + durationSeconds * 1000;
   bannedDevices.set(deviceId, { expiresAt, username });
-  console.log(`[BANNED] ${deviceId} (${username}) for ${durationSeconds} seconds`);
+  console.log(
+    `[BANNED] ${deviceId} (${username}) for ${durationSeconds} seconds`
+  );
 }
 
 function unbanDevice(deviceId) {
@@ -312,21 +337,21 @@ function findDeviceByUsername(username) {
       return clientData.deviceId;
     }
   }
-  
+
   // Try to find from deviceToUsername map
   for (const [deviceId, storedUsername] of deviceToUsername.entries()) {
     if (storedUsername === username) {
       return deviceId;
     }
   }
-  
+
   // Try to find from banned devices
   for (const [deviceId, banInfo] of bannedDevices.entries()) {
     if (banInfo.username === username) {
       return deviceId;
     }
   }
-  
+
   return null;
 }
 
@@ -343,7 +368,9 @@ function scheduleCleanup(ws) {
   if (!deviceId || !username) return;
 
   console.log(
-    `[GRACE] Scheduling cleanup for ${username} (${deviceId}) - ${RECONNECT_GRACE_PERIOD / 1000}s grace period`
+    `[GRACE] Scheduling cleanup for ${username} (${deviceId}) - ${
+      RECONNECT_GRACE_PERIOD / 1000
+    }s grace period`
   );
 
   // Cancel any existing timeout for this device
@@ -492,8 +519,8 @@ wss.on("connection", (ws) => {
           // Check if device is banned
           const banStatus = isDeviceBanned(deviceId);
           if (banStatus.banned) {
-            sendToClient(ws, "error", { 
-              msg: `Tu dispositivo ha sido expulsado. Podrás volver a entrar en ${banStatus.remainingTime} segundos.` 
+            sendToClient(ws, "error", {
+              msg: `Tu dispositivo ha sido expulsado. Podrás volver a entrar en ${banStatus.remainingTime} segundos.`,
             });
             ws.close();
             return;
@@ -604,19 +631,21 @@ wss.on("connection", (ws) => {
             return;
           }
 
-          console.log(`[LOGOUT] ${clientData.username} (${clientData.deviceId}) - explicit logout`);
-          
+          console.log(
+            `[LOGOUT] ${clientData.username} (${clientData.deviceId}) - explicit logout`
+          );
+
           // Do immediate cleanup (no grace period for explicit logout)
           const cleanupData = immediateCleanup(ws);
-          
+
           // Send confirmation
           sendToClient(ws, "loggedOut", {});
-          
+
           // Announce departure
           if (cleanupData && cleanupData.username) {
             broadcast(`[${cleanupData.username}] ha salido del chat.`);
           }
-          
+
           // Close the connection
           ws.close();
           return;
@@ -1000,14 +1029,14 @@ function generateToken() {
 }
 
 function verifyAdminToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  const authHeader = req.headers["authorization"];
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
   const token = authHeader.substring(7);
   if (!adminTokens.has(token)) {
-    return res.status(401).json({ error: 'Invalid token' });
+    return res.status(401).json({ error: "Invalid token" });
   }
 
   next();
@@ -1035,7 +1064,7 @@ app.get("/api/admin/verify", verifyAdminToken, (req, res) => {
 // Admin stats (protected)
 app.get("/api/admin/stats", verifyAdminToken, (req, res) => {
   cleanExpiredBans(); // Clean up expired bans before reporting
-  
+
   const users = [];
   for (const [ws, data] of clients.entries()) {
     if (data.authenticated) {
@@ -1084,11 +1113,14 @@ app.post("/api/admin/kick", verifyAdminToken, (req, res) => {
   }
 
   if (kicked) {
-    const banDuration = seconds && parseInt(seconds, 10) > 0 ? parseInt(seconds, 10) : 0;
-    
+    const banDuration =
+      seconds && parseInt(seconds, 10) > 0 ? parseInt(seconds, 10) : 0;
+
     if (kickedDeviceId && banDuration > 0) {
       banDevice(kickedDeviceId, username, banDuration);
-      broadcast(`[${username}] ha sido expulsado por el administrador durante ${banDuration} segundos.`);
+      broadcast(
+        `[${username}] ha sido expulsado por el administrador durante ${banDuration} segundos.`
+      );
     } else {
       broadcast(`[${username}] ha sido expulsado por el administrador.`);
     }
@@ -1115,13 +1147,15 @@ app.post("/api/admin/kick-all", verifyAdminToken, (req, res) => {
 // Clear history (protected)
 app.post("/api/admin/clear-history", verifyAdminToken, (req, res) => {
   messageHistory.length = 0;
-  
+
   // Send a special clearHistory message to all clients
   for (const [ws, clientData] of clients.entries()) {
     if (clientData.authenticated && ws.readyState === WebSocket.OPEN) {
       try {
         if (clientData.terminalMode) {
-          ws.send(`${colors.cyan}[SISTEMA] El historial del chat ha sido limpiado.${colors.reset}`);
+          ws.send(
+            `${colors.white}[SISTEMA] El historial del chat ha sido limpiado.${colors.reset}`
+          );
         } else {
           ws.send(JSON.stringify({ type: "clearHistory" }));
         }
@@ -1130,7 +1164,7 @@ app.post("/api/admin/clear-history", verifyAdminToken, (req, res) => {
       }
     }
   }
-  
+
   res.json({ success: true });
 });
 
@@ -1147,7 +1181,7 @@ app.post("/api/admin/unban", verifyAdminToken, (req, res) => {
   const { username, deviceId } = req.body;
 
   let targetDeviceId = deviceId;
-  
+
   // If only username provided, try to find device ID
   if (!targetDeviceId && username) {
     targetDeviceId = findDeviceByUsername(username);
@@ -1158,7 +1192,7 @@ app.post("/api/admin/unban", verifyAdminToken, (req, res) => {
   }
 
   const result = unbanDevice(targetDeviceId);
-  
+
   if (result.success) {
     broadcast(`[${result.username}] ha sido desbaneado por el administrador.`);
     res.json({ success: true, username: result.username });
