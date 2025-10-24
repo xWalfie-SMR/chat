@@ -1,4 +1,3 @@
-# Save this as connect.ps1 or run directly
 $OS = "Windows_NT"
 $ARCH = if ([Environment]::Is64BitOperatingSystem) { "x86_64" } else { "i686" }
 
