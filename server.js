@@ -280,6 +280,41 @@ function banDevice(deviceId, username, durationSeconds) {
   console.log(`[BANNED] ${deviceId} (${username}) for ${durationSeconds} seconds`);
 }
 
+function unbanDevice(deviceId) {
+  if (bannedDevices.has(deviceId)) {
+    const banInfo = bannedDevices.get(deviceId);
+    bannedDevices.delete(deviceId);
+    console.log(`[UNBANNED] ${deviceId} (${banInfo.username})`);
+    return { success: true, username: banInfo.username };
+  }
+  return { success: false };
+}
+
+function findDeviceByUsername(username) {
+  // Try to find device ID from active connections
+  for (const [ws, clientData] of clients.entries()) {
+    if (clientData.username === username) {
+      return clientData.deviceId;
+    }
+  }
+  
+  // Try to find from deviceToUsername map
+  for (const [deviceId, storedUsername] of deviceToUsername.entries()) {
+    if (storedUsername === username) {
+      return deviceId;
+    }
+  }
+  
+  // Try to find from banned devices
+  for (const [deviceId, banInfo] of bannedDevices.entries()) {
+    if (banInfo.username === username) {
+      return deviceId;
+    }
+  }
+  
+  return null;
+}
+
 // --- CLEANUP WITH GRACE PERIOD ---
 function scheduleCleanup(ws) {
   const clientData = clients.get(ws);
@@ -675,6 +710,50 @@ wss.on("connection", (ws) => {
               return;
             }
 
+            if (msg.startsWith("/unban ")) {
+              const parts = msg.split(" ");
+              if (parts.length < 3) {
+                sendToClient(ws, "chat", {
+                  msg: "Uso: /unban <usuario> <ADMIN_PWD>",
+                  timestamp: Date.now(),
+                });
+                return;
+              }
+
+              const targetUser = parts[1];
+              const pwd = parts[2];
+
+              if (pwd !== ADMIN_PWD) {
+                sendToClient(ws, "chat", {
+                  msg: "Contraseña incorrecta.",
+                  timestamp: Date.now(),
+                });
+                return;
+              }
+
+              const targetDeviceId = findDeviceByUsername(targetUser);
+              if (!targetDeviceId) {
+                sendToClient(ws, "chat", {
+                  msg: `Usuario [${targetUser}] no encontrado.`,
+                  timestamp: Date.now(),
+                });
+                return;
+              }
+
+              const result = unbanDevice(targetDeviceId);
+              if (result.success) {
+                broadcast(
+                  `[${result.username}] ha sido desbaneado por [${username}].`
+                );
+              } else {
+                sendToClient(ws, "chat", {
+                  msg: `Usuario [${targetUser}] no está baneado.`,
+                  timestamp: Date.now(),
+                });
+              }
+              return;
+            }
+
             // Ignore unknown /commands
             return;
           }
@@ -812,6 +891,45 @@ wss.on("connection", (ws) => {
             return;
           }
 
+          // Handle unban command
+          if (messageStr.startsWith("/unban")) {
+            const parts = messageStr.split(" ");
+            if (parts.length < 3) {
+              ws.send(
+                `${colors.yellow}Uso: /unban <usuario> <ADMIN_PWD>${colors.reset}`
+              );
+              return;
+            }
+
+            const targetUser = parts[1];
+            const pwd = parts[2];
+
+            if (pwd !== ADMIN_PWD) {
+              ws.send(`${colors.red}Contraseña incorrecta.${colors.reset}`);
+              return;
+            }
+
+            const targetDeviceId = findDeviceByUsername(targetUser);
+            if (!targetDeviceId) {
+              ws.send(
+                `${colors.red}Usuario [${targetUser}] no encontrado.${colors.reset}`
+              );
+              return;
+            }
+
+            const result = unbanDevice(targetDeviceId);
+            if (result.success) {
+              broadcast(
+                `[${result.username}] ha sido desbaneado por [${clientData.username}].`
+              );
+            } else {
+              ws.send(
+                `${colors.red}Usuario [${targetUser}] no está baneado.${colors.reset}`
+              );
+            }
+            return;
+          }
+
           // Regular chat message
           broadcast(`[${clientData.username}] ${messageStr}`);
           return;
@@ -877,6 +995,8 @@ app.get("/api/admin/verify", verifyAdminToken, (req, res) => {
 
 // Admin stats (protected)
 app.get("/api/admin/stats", verifyAdminToken, (req, res) => {
+  cleanExpiredBans(); // Clean up expired bans before reporting
+  
   const users = [];
   for (const [ws, data] of clients.entries()) {
     if (data.authenticated) {
@@ -888,12 +1008,23 @@ app.get("/api/admin/stats", verifyAdminToken, (req, res) => {
     }
   }
 
+  const bannedUsers = [];
+  for (const [deviceId, banInfo] of bannedDevices.entries()) {
+    const remainingTime = Math.ceil((banInfo.expiresAt - Date.now()) / 1000);
+    bannedUsers.push({
+      deviceId: deviceId,
+      username: banInfo.username,
+      remainingSeconds: remainingTime,
+    });
+  }
+
   res.json({
     userCount: activeUsernames.size,
     messageCount: messageHistory.length,
     uptime: Date.now() - SERVER_START_TIME,
     users: users,
     messages: messageHistory,
+    bannedUsers: bannedUsers,
   });
 });
 
@@ -970,6 +1101,31 @@ app.post("/api/admin/broadcast", verifyAdminToken, (req, res) => {
 
   broadcast(`[ADMIN] ${message}`);
   res.json({ success: true });
+});
+
+// Unban user (protected)
+app.post("/api/admin/unban", verifyAdminToken, (req, res) => {
+  const { username, deviceId } = req.body;
+
+  let targetDeviceId = deviceId;
+  
+  // If only username provided, try to find device ID
+  if (!targetDeviceId && username) {
+    targetDeviceId = findDeviceByUsername(username);
+  }
+
+  if (!targetDeviceId) {
+    return res.json({ success: false, error: "User or device not found" });
+  }
+
+  const result = unbanDevice(targetDeviceId);
+  
+  if (result.success) {
+    broadcast(`[${result.username}] ha sido desbaneado por el administrador.`);
+    res.json({ success: true, username: result.username });
+  } else {
+    res.json({ success: false, error: "User is not banned" });
+  }
 });
 
 // --- START SERVER ---
