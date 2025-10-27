@@ -357,29 +357,86 @@ async function clearAllUsers() {
 }
 
 async function clearHistory() {
-  if (!confirm("Are you sure you want to clear chat history?")) return;
+  showCustomPrompt({
+    message: "Are you sure you want to clear chat history?",
+    confirmText: "Clear History",
+    cancelText: "Cancel",
+    onConfirm: async () => {
+      try {
+        const res = await fetch(API_URL + "/api/admin/clear-history", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (res.status === 401) {
+          logout();
+          return;
+        }
+        const data = await res.json();
+        if (data.success) {
+          showResult("Chat history cleared");
+          fetchStats();
+        } else {
+          showResult(data.error || "Failed", true);
+        }
+      } catch (err) {
+        showResult("Request failed", true);
+      }
+    },
+  });
+  // Custom modal prompt for admin actions
+  function showCustomPrompt({ message, confirmText, cancelText, onConfirm }) {
+    // Remove any existing prompt
+    let existing = document.getElementById("custom-prompt-modal");
+    if (existing) existing.remove();
 
-  try {
-    const res = await fetch(API_URL + "/api/admin/clear-history", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
+    const modal = document.createElement("div");
+    modal.id = "custom-prompt-modal";
+    modal.className = "hide";
 
-    if (res.status === 401) {
-      logout();
-      return;
-    }
+    const box = document.createElement("div");
+    box.className = "custom-prompt-box";
 
-    const data = await res.json();
+    const msg = document.createElement("div");
+    msg.className = "custom-prompt-message";
+    msg.textContent = message;
 
-    if (data.success) {
-      showResult("Chat history cleared");
-      fetchStats();
-    } else {
-      showResult(data.error || "Failed", true);
-    }
-  } catch (err) {
-    showResult("Request failed", true);
+    const btnRow = document.createElement("div");
+    btnRow.className = "custom-prompt-btn-row";
+
+    const confirmBtn = document.createElement("button");
+    confirmBtn.className = "custom-prompt-confirm";
+    confirmBtn.textContent = confirmText || "Confirm";
+    confirmBtn.onclick = () => {
+      modal.classList.remove("show");
+      modal.classList.add("hide");
+      setTimeout(() => {
+        if (modal.parentNode) modal.parentNode.removeChild(modal);
+        if (onConfirm) onConfirm();
+      }, 250);
+    };
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "custom-prompt-cancel";
+    cancelBtn.textContent = cancelText || "Cancel";
+    cancelBtn.onclick = () => {
+      modal.classList.remove("show");
+      modal.classList.add("hide");
+      setTimeout(() => {
+        if (modal.parentNode) modal.parentNode.removeChild(modal);
+      }, 250);
+    };
+
+    btnRow.appendChild(confirmBtn);
+    btnRow.appendChild(cancelBtn);
+    box.appendChild(msg);
+    box.appendChild(btnRow);
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+    // Trigger fade-in
+    setTimeout(() => {
+      modal.classList.remove("hide");
+      modal.classList.add("show");
+    }, 10);
   }
 }
 
