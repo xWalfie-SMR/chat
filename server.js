@@ -44,7 +44,6 @@ app.use((req, res, next) => {
     "http://127.0.0.1:5500",
     "http://localhost:5500",
     "https://xwalfie-smr.github.io",
-    "https://chat-cp1p.onrender.com",
   ];
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
