@@ -147,6 +147,16 @@ function getUserColor(username) {
 }
 
 function formatMessageForTerminal(msg) {
+  // Handle username change messages specially
+  const usernameChangeMatch = msg.match(/^\[(.+?)\] ahora es \[(.+?)\]$/);
+  if (usernameChangeMatch) {
+    const oldUsername = usernameChangeMatch[1];
+    const newUsername = usernameChangeMatch[2];
+    const oldColor = getUserColor(oldUsername);
+    const newColor = getUserColor(newUsername);
+    return `${oldColor}[${oldUsername}]${colors.reset} ${colors.gray}ahora es${colors.reset} ${newColor}[${newUsername}]${colors.reset}`;
+  }
+
   // Parse [username] message format and add colors
   const match = msg.match(/^\[(.+?)\] (.*)$/);
   if (match) {
@@ -160,8 +170,7 @@ function formatMessageForTerminal(msg) {
   if (
     msg.includes("se ha unido") ||
     msg.includes("ha salido") ||
-    msg.includes("expulsado") ||
-    msg.includes("ahora es")
+    msg.includes("expulsado")
   ) {
     return `${colors.gray}${msg}${colors.reset}`;
   }
@@ -1086,7 +1095,7 @@ app.get("/api/admin/stats", verifyAdminToken, (req, res) => {
   }
 
   res.json({
-    userCount: activeUsernames.size,
+    userCount: users.length,
     messageCount: messageHistory.length,
     uptime: Date.now() - SERVER_START_TIME,
     users: users,

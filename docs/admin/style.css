@@ -407,13 +407,14 @@ ACTION BUTTONS
 }
 
 .action-btn.danger {
-  background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-  box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+  background: var(--accent-danger);
+  box-shadow: rgba(255, 88, 88, 1) 0px 0px 15px;
 }
 
 .action-btn.danger:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(255, 107, 107, 0.4);
+  background: #ff7b74;
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: rgb(255, 120, 120) 0px 0px 15px;
 }
 
 .action-btn.warning {
@@ -506,7 +507,7 @@ ACTION BUTTONS
   justify-content: center;
 }
 .custom-prompt-confirm {
-  background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+  background: var(--accent-danger);
   color: #fff;
   border: none;
   border-radius: 10px;
@@ -514,12 +515,13 @@ ACTION BUTTONS
   font-size: 18px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 0 15px 0 #ff5858, 0 0 0 2px #ff6b6b;
-  transition: box-shadow 0.2s, background 0.2s;
+  box-shadow: rgba(255, 88, 88, 1) 0px 0px 15px;
+  transition: box-shadow 0.2s, background 0.2s, transform 0.2s;
 }
 .custom-prompt-confirm:hover {
-  background: linear-gradient(135deg, #ff7b74, #ff6b6b);
-  box-shadow: 0 0 18px 2px #ff7878, 0 0 0 2px #ff7b74;
+  background: #ff7b74;
+  box-shadow: rgb(255, 120, 120) 0px 0px 15px;
+  transform: scale(1.05);
 }
 .custom-prompt-cancel {
   background: #23272f;
@@ -630,11 +632,12 @@ USER LIST
   font-size: 13px;
   font-weight: 600;
   transition: all 0.3s ease;
+  box-shadow: rgba(255, 88, 88, 1) 0px 0px 15px;
 }
 
 .user-item button:hover {
-  background: #ee5a52;
-  box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
+  background: #ff7b74;
+  box-shadow: rgb(255, 120, 120) 0px 0px 15px;
   transform: scale(1.05);
 }
 
@@ -955,14 +958,15 @@ USER LIST
 }
 
 .modal-btn.confirm {
-  background: linear-gradient(135deg, var(--accent-danger), #ee5a52);
+  background: var(--accent-danger);
   color: white;
-  box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+  box-shadow: rgba(255, 88, 88, 1) 0px 0px 15px;
 }
 
 .modal-btn.confirm:hover {
+  background: #ff7b74;
   transform: scale(1.05);
-  box-shadow: 0 6px 20px rgba(255, 107, 107, 0.5);
+  box-shadow: rgb(255, 120, 120) 0px 0px 15px;
 }
 
 /* ===========================
