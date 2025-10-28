@@ -31,6 +31,7 @@ RESET & ROOT VARIABLES
   --accent-primary: #6c5ce7;
   --accent-secondary: #00b894;
   --accent-danger: #ff6b6b;
+  --accent-danger-hover: #ff7b74;
   --accent-warning: #feca57;
   --accent-info: #48dbfb;
   --text-primary: #ffffff;
@@ -292,9 +293,9 @@ LOGIN SCREEN
 }
 
 .logout-btn:hover {
-  background: #ff7b74 !important;
+  background: var(--accent-danger-hover) !important;
   transform: scale(1.08) !important;
-  box-shadow: rgb(255, 120, 120) 0px 0px 15px !important;
+  box-shadow: rgb(255, 120, 120) 0px 0px 19px !important;
 }
 
 /* ===========================
@@ -361,19 +362,19 @@ SECTIONS & STATS
 .stat-icon.users {
   background: linear-gradient(135deg, #667eea, #764ba2);
   color: white;
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+  box-shadow: 0 0px 24px rgba(102, 126, 234, 1);
 }
 
 .stat-icon.messages {
   background: linear-gradient(135deg, #f093fb, #f5576c);
   color: white;
-  box-shadow: 0 8px 24px rgba(240, 147, 251, 0.3);
+  box-shadow: 0 0px 24px rgba(240, 147, 251, 1);
 }
 
 .stat-icon.uptime {
   background: linear-gradient(135deg, #4facfe, #00f2fe);
   color: white;
-  box-shadow: 0 8px 24px rgba(79, 172, 254, 0.3);
+  box-shadow: 0 0px 24px rgba(79, 172, 254, 1);
 }
 
 .stat-content {
@@ -425,32 +426,32 @@ ACTION BUTTONS
 
 .action-btn.danger {
   background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-  box-shadow: 0 0px 15px rgba(255, 88, 88, 1);
+  box-shadow: 0 0px 10px rgba(255, 88, 88, 1);
 }
 
 .action-btn.danger:hover {
   transform: scale(1.02);
-  box-shadow: 0 0px 25px rgba(255, 120, 120, 1);
+  box-shadow: 0 0px 13px rgba(255, 120, 120, 1);
 }
 
 .action-btn.warning {
-  background: linear-gradient(135deg, #9b7a34, #c7a88b);
-  box-shadow: 0 0px 15px rgba(254, 202, 87, 1);
+  background: var(--accent-warning);
+  box-shadow: 0 0px 10px rgba(254, 202, 87, 1);
 }
 
 .action-btn.warning:hover {
   transform: scale(1.02);
-  box-shadow: 0 0px 25px rgb(255, 217, 136);
+  box-shadow: 0 0px 13px rgb(255, 217, 136);
 }
 
 .action-btn.primary {
   background: linear-gradient(135deg, #48dbfb, #0abde3);
-  box-shadow: 0 0px 15px rgba(72, 219, 251, 1);
+  box-shadow: 0 0px 10px rgba(72, 219, 251, 1);
 }
 
 .action-btn.primary:hover {
   transform: scale(1.08);
-  box-shadow: 0 0px 25px rgb(127, 230, 253);
+  box-shadow: 0 0px 13px rgb(127, 230, 253);
 }
 
 #action-result {
@@ -523,7 +524,7 @@ ACTION BUTTONS
   justify-content: center;
 }
 .custom-prompt-confirm {
-  background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+  background: linear-gradient(135deg, var(--accent-danger-hover), var(--accent-danger));
   color: #fff;
   border: none;
   border-radius: 10px;
@@ -536,14 +537,14 @@ ACTION BUTTONS
 }
 .custom-prompt-confirm:hover {
   transform: scale(1.08);
-  background: linear-gradient(135deg, #ff7b74, #ff6b6b);
-  box-shadow: rgba(255, 120, 120, 1) 0px 0px 24px;
+  background: linear-gradient(135deg, var(--accent-danger-hover), var(--accent-danger));
+  box-shadow: rgba(255, 120, 120, 1) 0px 0px 19px;
 }
 .custom-prompt-cancel {
   background: #23272f;
   color: #a8a8b3;
   border: 2px solid #2d2d44;
-  box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
   border-radius: 10px;
   padding: 12px 28px;
   font-size: 15px;
@@ -552,10 +553,11 @@ ACTION BUTTONS
   transition: ease 0.3s all;
 }
 .custom-prompt-cancel:hover {
+  transform: scale(1.08);
   background: #2d2d44;
   border-color: #6c5ce7;
   color: #fff;
-  box-shadow: 0 0 12px rgba(108, 92, 231, 0.4);
+  box-shadow: 0 0 19px rgba(108, 92, 231, 0.4);
 }
 
 /* ===========================
@@ -649,6 +651,7 @@ USER LIST
 .user-item button {
   padding: 10px 20px;
   background: var(--accent-danger);
+  box-shadow: rgba(255, 88, 88, 1) 0px 0px 15px;
   color: white;
   border: none;
   border-radius: 8px;
@@ -659,9 +662,9 @@ USER LIST
 }
 
 .user-item button:hover {
-  background: #ee5a52;
-  box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
-  transform: scale(1.05);
+  background: var(--accent-danger-hover);
+  box-shadow: 0 0px 19px rgba(255, 120, 120, 1);
+  transform: scale(1.08);
 }
 
 /* ===========================
