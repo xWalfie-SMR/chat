@@ -357,29 +357,66 @@ function findDeviceByUsername(username) {
 // --- CLEANUP WITH GRACE PERIOD ---
 function scheduleCleanup(ws) {
   const clientData = clients.get(ws);
-  if (!clientData) return;
+  if (!clientData) {
+    console.log(`[GRACE DEBUG] scheduleCleanup called but no clientData found`);
+    return;
+  }
 
   const { username, deviceId } = clientData;
 
   // Remove from clients map immediately
   clients.delete(ws);
 
-  if (!deviceId || !username) return;
+  if (!deviceId || !username) {
+    console.log(
+      `[GRACE DEBUG] scheduleCleanup skipped - missing data: deviceId=${deviceId}, username=${username}`
+    );
+    return;
+  }
+
+  const graceStartTime = Date.now();
+  const graceExpiresAt = graceStartTime + RECONNECT_GRACE_PERIOD;
 
   console.log(
-    `[GRACE] Scheduling cleanup for ${username} (${deviceId}) - ${
-      RECONNECT_GRACE_PERIOD / 1000
-    }s grace period`
+    `[GRACE START] User disconnected - starting grace period`
   );
+  console.log(`  Username: ${username}`);
+  console.log(`  DeviceId: ${deviceId}`);
+  console.log(`  Grace period: ${RECONNECT_GRACE_PERIOD / 1000}s`);
+  console.log(`  Started at: ${new Date(graceStartTime).toISOString()}`);
+  console.log(`  Expires at: ${new Date(graceExpiresAt).toISOString()}`);
+  console.log(`  Active usernames before: ${Array.from(activeUsernames).join(", ")}`);
 
   // Cancel any existing timeout for this device
   if (disconnectionTimeouts.has(deviceId)) {
-    clearTimeout(disconnectionTimeouts.get(deviceId).timeout);
+    const existing = disconnectionTimeouts.get(deviceId);
+    clearTimeout(existing.timeout);
+    console.log(
+      `[GRACE DEBUG] Cleared existing grace period timeout for ${username} (${deviceId})`
+    );
+    console.log(`  Previous grace started: ${new Date(existing.timestamp).toISOString()}`);
   }
 
   // Schedule cleanup after grace period
   const timeoutId = setTimeout(() => {
-    console.log(`[CLEANUP] Grace period expired for ${username} (${deviceId})`);
+    const now = Date.now();
+    const graceDuration = (now - graceStartTime) / 1000;
+    
+    console.log(`[GRACE EXPIRED] Grace period ended - cleaning up user`);
+    console.log(`  Username: ${username}`);
+    console.log(`  DeviceId: ${deviceId}`);
+    console.log(`  Grace duration: ${graceDuration.toFixed(2)}s`);
+    console.log(`  Expected duration: ${RECONNECT_GRACE_PERIOD / 1000}s`);
+    console.log(`  Expired at: ${new Date(now).toISOString()}`);
+
+    // Check if user is still in expected state
+    const stillInTimeout = disconnectionTimeouts.has(deviceId);
+    const stillHasUsername = activeUsernames.has(username);
+    const stillMappedDevice = deviceToUsername.get(deviceId) === username;
+
+    console.log(`  Still in timeout map: ${stillInTimeout}`);
+    console.log(`  Still in active usernames: ${stillHasUsername}`);
+    console.log(`  Still mapped to device: ${stillMappedDevice}`);
 
     // Clean up
     activeUsernames.delete(username);
@@ -387,36 +424,68 @@ function scheduleCleanup(ws) {
     rateLimits.delete(username);
     disconnectionTimeouts.delete(deviceId);
 
+    console.log(`  Cleanup completed`);
+    console.log(`  Active usernames after: ${Array.from(activeUsernames).join(", ") || "(none)"}`);
+
     // NOW broadcast departure (after grace period)
     broadcast(`[${username}] ha salido del chat.`);
+    console.log(`  Broadcasted departure message`);
   }, RECONNECT_GRACE_PERIOD);
 
   // Store timeout info
   disconnectionTimeouts.set(deviceId, {
     timeout: timeoutId,
     username: username,
-    timestamp: Date.now(),
+    timestamp: graceStartTime,
   });
+
+  console.log(
+    `[GRACE DEBUG] Grace period scheduled successfully, timeout stored in map`
+  );
 }
 
 function cancelScheduledCleanup(deviceId) {
+  console.log(`[GRACE DEBUG] cancelScheduledCleanup called for deviceId: ${deviceId}`);
+  
   if (disconnectionTimeouts.has(deviceId)) {
-    const { timeout, username } = disconnectionTimeouts.get(deviceId);
+    const { timeout, username, timestamp } = disconnectionTimeouts.get(deviceId);
+    const now = Date.now();
+    const timeInGrace = (now - timestamp) / 1000;
+    const remainingGrace = (RECONNECT_GRACE_PERIOD - (now - timestamp)) / 1000;
+    
     clearTimeout(timeout);
     disconnectionTimeouts.delete(deviceId);
-    console.log(
-      `[RECONNECT] Cancelled cleanup for ${username} (${deviceId}) - reconnected in time`
-    );
+    
+    console.log(`[GRACE CANCELLED] User reconnected within grace period`);
+    console.log(`  Username: ${username}`);
+    console.log(`  DeviceId: ${deviceId}`);
+    console.log(`  Grace started: ${new Date(timestamp).toISOString()}`);
+    console.log(`  Reconnected at: ${new Date(now).toISOString()}`);
+    console.log(`  Time in grace period: ${timeInGrace.toFixed(2)}s`);
+    console.log(`  Remaining grace time: ${remainingGrace.toFixed(2)}s`);
+    console.log(`  Total grace period: ${RECONNECT_GRACE_PERIOD / 1000}s`);
+    console.log(`  Success rate: ${((timeInGrace / (RECONNECT_GRACE_PERIOD / 1000)) * 100).toFixed(1)}% of grace period used`);
+    
     return true;
   }
+  
+  console.log(`[GRACE DEBUG] No grace period found for deviceId: ${deviceId}`);
   return false;
 }
 
 function immediateCleanup(ws) {
   const clientData = clients.get(ws);
-  if (!clientData) return null;
+  if (!clientData) {
+    console.log(`[GRACE DEBUG] immediateCleanup called but no clientData found`);
+    return null;
+  }
 
   const { username, deviceId } = clientData;
+
+  console.log(`[IMMEDIATE CLEANUP] Starting immediate cleanup (bypassing grace period)`);
+  console.log(`  Username: ${username}`);
+  console.log(`  DeviceId: ${deviceId}`);
+  console.log(`  Reason: Admin kick or forced disconnect`);
 
   // Remove from all tracking immediately
   clients.delete(ws);
@@ -424,8 +493,18 @@ function immediateCleanup(ws) {
   if (deviceId) {
     // Cancel any pending cleanup
     if (disconnectionTimeouts.has(deviceId)) {
+      const { timestamp } = disconnectionTimeouts.get(deviceId);
+      const timeInGrace = (Date.now() - timestamp) / 1000;
+      
+      console.log(`  Had pending grace period:`);
+      console.log(`    Grace started: ${new Date(timestamp).toISOString()}`);
+      console.log(`    Time in grace: ${timeInGrace.toFixed(2)}s`);
+      console.log(`    Cancelling grace period...`);
+      
       clearTimeout(disconnectionTimeouts.get(deviceId).timeout);
       disconnectionTimeouts.delete(deviceId);
+    } else {
+      console.log(`  No pending grace period found`);
     }
     deviceToUsername.delete(deviceId);
   }
@@ -435,7 +514,9 @@ function immediateCleanup(ws) {
     rateLimits.delete(username);
   }
 
-  console.log(`[IMMEDIATE] Cleaned up: ${username} (${deviceId})`);
+  console.log(`[IMMEDIATE CLEANUP] Completed: ${username} (${deviceId})`);
+  console.log(`  Active usernames after: ${Array.from(activeUsernames).join(", ") || "(none)"}`);
+  
   return { username, deviceId };
 }
 
@@ -529,44 +610,81 @@ wss.on("connection", (ws) => {
           let announceJoin = true;
           let isQuickReconnect = false;
 
+          console.log(`[AUTH] Processing authentication request`);
+          console.log(`  Requested username: ${requestedName}`);
+          console.log(`  DeviceId: ${deviceId}`);
+          console.log(`  isReconnect flag: ${isReconnect}`);
+          console.log(`  Has grace period: ${disconnectionTimeouts.has(deviceId)}`);
+          console.log(`  Has stored username: ${deviceToUsername.has(deviceId)}`);
+          console.log(`  Current active usernames: ${Array.from(activeUsernames).join(", ") || "(none)"}`);
+
           // CHECK 1: Is there a pending disconnection for this device? (Quick reconnect)
+          console.log(`[AUTH CHECK 1] Checking for quick reconnect (within grace period)...`);
           if (cancelScheduledCleanup(deviceId)) {
             // User reconnected before grace period ended
             const previousUsername = deviceToUsername.get(deviceId);
+            console.log(`  Found previous username: ${previousUsername}`);
+            console.log(`  Previous username still active: ${activeUsernames.has(previousUsername)}`);
+            
             if (previousUsername && activeUsernames.has(previousUsername)) {
               finalUsername = previousUsername;
               announceJoin = false; // DON'T announce - they never really left
               isQuickReconnect = true;
               console.log(
-                `[QUICK RECONNECT] ${finalUsername} (${deviceId}) within grace period`
+                `[QUICK RECONNECT SUCCESS] ${finalUsername} (${deviceId}) reconnected within grace period`
               );
+              console.log(`  Will NOT announce join (seamless reconnect)`);
+            } else {
+              console.log(`[AUTH DEBUG] Grace cancelled but username not available: ${previousUsername}`);
             }
+          } else {
+            console.log(`  No grace period found - not a quick reconnect`);
           }
 
           // CHECK 2: Does this device have a stored username? (Reconnect after grace period)
+          console.log(`[AUTH CHECK 2] Checking for reconnect after grace period...`);
           if (!finalUsername && isReconnect && deviceToUsername.has(deviceId)) {
             const previousUsername = deviceToUsername.get(deviceId);
+            console.log(`  Found stored username: ${previousUsername}`);
+            console.log(`  Username available: ${isUsernameAvailable(previousUsername)}`);
 
             // Reuse previous username if it's available
             if (isUsernameAvailable(previousUsername)) {
               finalUsername = previousUsername;
               announceJoin = true; // DO announce - they were gone long enough
               console.log(
-                `[RECONNECT] ${finalUsername} (${deviceId}) after grace period`
+                `[RECONNECT AFTER GRACE] ${finalUsername} (${deviceId}) reconnected after grace period expired`
               );
+              console.log(`  Will announce join (user was gone)`);
+            } else {
+              console.log(`[AUTH DEBUG] Previous username taken, will generate new one`);
+            }
+          } else {
+            if (!finalUsername) {
+              console.log(`  Conditions not met:`);
+              console.log(`    finalUsername set: ${!!finalUsername}`);
+              console.log(`    isReconnect: ${isReconnect}`);
+              console.log(`    has stored username: ${deviceToUsername.has(deviceId)}`);
             }
           }
 
           // CHECK 3: Generate new username for first-time users
+          console.log(`[AUTH CHECK 3] Checking if new username needed...`);
           if (!finalUsername) {
             finalUsername = generateUniqueUsername(requestedName);
             announceJoin = true; // DO announce - brand new user
-            console.log(`[NEW USER] ${finalUsername} (${deviceId})`);
+            console.log(`[NEW USER] Generated username: ${finalUsername} for deviceId: ${deviceId}`);
+            console.log(`  Will announce join (new user)`);
+          } else {
+            console.log(`  Username already determined: ${finalUsername}`);
           }
 
           // Register username
+          console.log(`[AUTH] Registering user...`);
           activeUsernames.add(finalUsername);
           deviceToUsername.set(deviceId, finalUsername);
+          console.log(`  Registered ${finalUsername} (${deviceId})`);
+          console.log(`  Active usernames now: ${Array.from(activeUsernames).join(", ")}`);
 
           // Update client data
           clientData.username = finalUsername;
@@ -579,15 +697,21 @@ wss.on("connection", (ws) => {
             serverStartTime: SERVER_START_TIME,
             isQuickReconnect: isQuickReconnect,
           });
+          console.log(`  Sent authentication success (isQuickReconnect: ${isQuickReconnect})`);
 
           // Send chat history
           sendToClient(ws, "history", { messages: messageHistory });
+          console.log(`  Sent chat history (${messageHistory.length} messages)`);
 
           // Announce join ONLY if appropriate
           if (announceJoin) {
             broadcast(`[${finalUsername}] se ha unido al chat.`);
+            console.log(`  Broadcasted join announcement`);
+          } else {
+            console.log(`  Skipped join announcement (quick reconnect)`);
           }
 
+          console.log(`[AUTH COMPLETE] ${finalUsername} authenticated successfully`);
           return;
         }
 
@@ -1009,12 +1133,26 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
+    const clientData = clients.get(ws);
+    if (clientData) {
+      console.log(`[DISCONNECT] WebSocket closed`);
+      console.log(`  Username: ${clientData.username || "(not authenticated)"}`);
+      console.log(`  DeviceId: ${clientData.deviceId || "(none)"}`);
+      console.log(`  Was authenticated: ${clientData.authenticated}`);
+    }
     // Use grace period for normal disconnections
     scheduleCleanup(ws);
   });
 
   ws.on("error", (err) => {
-    console.error("WebSocket error:", err);
+    const clientData = clients.get(ws);
+    if (clientData) {
+      console.error(`[DISCONNECT ERROR] WebSocket error for ${clientData.username || "(not authenticated)"}`);
+      console.error(`  DeviceId: ${clientData.deviceId || "(none)"}`);
+      console.error(`  Error:`, err);
+    } else {
+      console.error("WebSocket error:", err);
+    }
     // Use grace period even for errors
     scheduleCleanup(ws);
   });
@@ -1064,6 +1202,11 @@ app.get("/api/admin/verify", verifyAdminToken, (req, res) => {
 app.get("/api/admin/stats", verifyAdminToken, (req, res) => {
   cleanExpiredBans(); // Clean up expired bans before reporting
 
+  console.log(`[ADMIN STATS] Collecting stats for admin panel`);
+  console.log(`  Active clients: ${clients.size}`);
+  console.log(`  Active usernames: ${activeUsernames.size}`);
+  console.log(`  Grace period timeouts: ${disconnectionTimeouts.size}`);
+
   // Collect online users
   const users = [];
   for (const [ws, data] of clients.entries()) {
@@ -1076,21 +1219,32 @@ app.get("/api/admin/stats", verifyAdminToken, (req, res) => {
       });
     }
   }
+  console.log(`  Online authenticated users: ${users.length}`);
 
   // Add users in grace period (disconnectionTimeouts)
+  console.log(`[ADMIN STATS] Adding grace period users...`);
   for (const [deviceId, info] of disconnectionTimeouts.entries()) {
+    const graceSeconds = Math.ceil((Date.now() - info.timestamp) / 1000);
+    const graceRemaining = Math.ceil(
+      RECONNECT_GRACE_PERIOD / 1000 - (Date.now() - info.timestamp) / 1000
+    );
+    
+    console.log(`  Grace user: ${info.username} (${deviceId})`);
+    console.log(`    Started: ${new Date(info.timestamp).toISOString()}`);
+    console.log(`    Elapsed: ${graceSeconds}s`);
+    console.log(`    Remaining: ${graceRemaining}s`);
+    
     users.push({
       username: info.username,
       deviceId: deviceId,
       terminalMode: null,
       status: "grace",
       graceStarted: info.timestamp,
-      graceSeconds: Math.ceil((Date.now() - info.timestamp) / 1000),
-      graceRemaining: Math.ceil(
-        RECONNECT_GRACE_PERIOD / 1000 - (Date.now() - info.timestamp) / 1000
-      ),
+      graceSeconds: graceSeconds,
+      graceRemaining: graceRemaining,
     });
   }
+  console.log(`  Total users (online + grace): ${users.length}`)
 
   const bannedUsers = [];
   for (const [deviceId, banInfo] of bannedDevices.entries()) {
@@ -1219,9 +1373,21 @@ app.post("/api/admin/unban", verifyAdminToken, (req, res) => {
 
 // --- START SERVER ---
 server.listen(PORT, () => {
+  console.log(`\n${"=".repeat(60)}`);
+  console.log(`Chat Server Started`);
+  console.log(`${"=".repeat(60)}`);
   console.log(`Server running on port ${PORT}`);
   console.log(`Start time: ${new Date(SERVER_START_TIME).toISOString()}`);
-  console.log(
-    `Reconnect grace period: ${RECONNECT_GRACE_PERIOD / 1000} seconds`
-  );
+  console.log(`\nGrace Period Configuration:`);
+  console.log(`  Duration: ${RECONNECT_GRACE_PERIOD / 1000} seconds`);
+  console.log(`  Purpose: Allow seamless reconnections without announcing leave/join`);
+  console.log(`\nDebugging Features:`);
+  console.log(`  [GRACE START] - When a user disconnects and grace period begins`);
+  console.log(`  [GRACE CANCELLED] - When user reconnects within grace period`);
+  console.log(`  [GRACE EXPIRED] - When grace period ends and user is removed`);
+  console.log(`  [QUICK RECONNECT SUCCESS] - Successful reconnection within grace`);
+  console.log(`  [RECONNECT AFTER GRACE] - Reconnection after grace expired`);
+  console.log(`  [IMMEDIATE CLEANUP] - Forced cleanup (kicks, etc)`);
+  console.log(`  [ADMIN STATS] - Stats requests showing grace period users`);
+  console.log(`${"=".repeat(60)}\n`);
 });
