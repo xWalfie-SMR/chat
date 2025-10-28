@@ -1,4 +1,21 @@
 /* ===========================
+GRACE PERIOD STATUS
+=========================== */
+.status-grace {
+  color: var(--accent-warning);
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+
+/* Disabled kick button for grace period */
+.user-item button:disabled {
+  background: var(--accent-warning);
+  color: #fff;
+  opacity: 0.7;
+  cursor: not-allowed;
+  border: none;
+}
+/* ===========================
 RESET & ROOT VARIABLES
 =========================== */
 * {
@@ -29,7 +46,7 @@ BASE STYLES
 =========================== */
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-  "Ubuntu", "Cantarell", sans-serif;
+    "Ubuntu", "Cantarell", sans-serif;
   background: linear-gradient(135deg, var(--bg-primary) 0%, #16213e 100%);
   color: var(--text-primary);
   padding: 20px;
@@ -143,19 +160,19 @@ LOGIN SCREEN
     135deg,
     var(--accent-primary),
     var(--accent-info)
-    );
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 30px;
-    font-size: 36px;
-    box-shadow: 0 8px 24px rgba(108, 92, 231, 0.4);
-  }
-  
-  .login-box h1 {
-    margin-bottom: 30px;
-    color: var(--text-primary);
+  );
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 30px;
+  font-size: 36px;
+  box-shadow: 0 8px 24px rgba(108, 92, 231, 0.4);
+}
+
+.login-box h1 {
+  margin-bottom: 30px;
+  color: var(--text-primary);
   font-size: 28px;
   font-weight: 600;
 }
@@ -185,64 +202,64 @@ LOGIN SCREEN
     135deg,
     var(--accent-primary),
     var(--accent-info)
-    );
-    color: white;
-    border: none;
-    border-radius: 12px;
-    cursor: pointer;
-    font-size: 16px;
-    font-weight: 600;
-    transition: all 0.3s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-  }
-  
-  .login-box button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(108, 92, 231, 0.4);
-  }
-  
-  .login-error {
-    margin-top: 15px;
-    padding: 12px;
-    background: rgba(255, 107, 107, 0.1);
-    color: var(--accent-danger);
-    border: 1px solid var(--accent-danger);
-    border-radius: 8px;
-    display: none;
-    font-size: 14px;
-  }
-  
-  .login-error.show {
-    display: block;
-    animation: shake 0.3s ease;
-  }
-  
-  /* ===========================
+  );
+  color: white;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 0px 12px rgba(108, 92, 231, 0.3);
+}
+
+.login-box button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0px 24px rgba(144, 134, 223, 0.4);
+}
+
+.login-error {
+  margin-top: 15px;
+  padding: 12px;
+  background: rgba(255, 107, 107, 0.1);
+  color: var(--accent-danger);
+  border: 1px solid var(--accent-danger);
+  border-radius: 8px;
+  display: none;
+  font-size: 14px;
+}
+
+.login-error.show {
+  display: block;
+  animation: shake 0.3s ease;
+}
+
+/* ===========================
   ADMIN PANEL
   =========================== */
-  .container {
-    max-width: 1400px;
-    margin: 0 auto;
-    animation: fadeIn 0.5s ease-out;
-  }
-  
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 30px;
-    padding: 20px 30px;
-    background: var(--bg-secondary);
-    border-radius: 16px;
-    border: 1px solid var(--border-color);
-    box-shadow: var(--shadow);
-  }
-  
-.header-left {
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  animation: fadeIn 0.5s ease-out;
+}
 
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  padding: 20px 30px;
+  background: var(--bg-secondary);
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow);
+}
+
+.header-left {
   display: flex;
   align-items: center;
   gap: 15px;
@@ -419,22 +436,22 @@ ACTION BUTTONS
 
 .action-btn.warning {
   background: linear-gradient(135deg, #9b7a34, #c7a88b);
-  box-shadow: 0 4px 15px rgba(254, 202, 87, 0.3);
+  box-shadow: 0 0px 15px rgba(254, 202, 87, 1);
 }
 
 .action-btn.warning:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(254, 202, 87, 0.4);
+  transform: scale(1.02);
+  box-shadow: 0 0px 25px rgb(255, 217, 136);
 }
 
 .action-btn.primary {
   background: linear-gradient(135deg, #48dbfb, #0abde3);
-  box-shadow: 0 4px 15px rgba(72, 219, 251, 0.3);
+  box-shadow: 0 0px 15px rgba(72, 219, 251, 1);
 }
 
 .action-btn.primary:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(72, 219, 251, 0.4);
+  transform: scale(1.08);
+  box-shadow: 0 0px 25px rgb(127, 230, 253);
 }
 
 #action-result {
@@ -527,11 +544,19 @@ ACTION BUTTONS
   background: #23272f;
   color: #a8a8b3;
   border: 2px solid #2d2d44;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
   border-radius: 10px;
   padding: 12px 28px;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
+  transition: ease 0.3s all;
+}
+.custom-prompt-cancel:hover {
+  background: #2d2d44;
+  border-color: #6c5ce7;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(108, 92, 231, 0.4);
 }
 
 /* ===========================

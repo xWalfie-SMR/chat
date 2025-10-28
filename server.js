@@ -25,13 +25,13 @@ const colors = {
 };
 
 // --- DATA STRUCTURES ---
-const clients = new Map();                              // ws -> { username, deviceId, authenticated, terminalMode }
-const deviceToUsername = new Map();                     // deviceId -> username
-const activeUsernames = new Set();                      // Currently active usernames
-const disconnectionTimeouts = new Map();                // deviceId -> { timeout, username, timestamp }
-const messageHistory = [];                              // { msg, timestamp }[]
-const rateLimits = new Map();                           // username -> { count, lastReset, mutedUntil }
-const bannedDevices = new Map();                        // deviceId -> { expiresAt, username }
+const clients = new Map(); // ws -> { username, deviceId, authenticated, terminalMode }
+const deviceToUsername = new Map(); // deviceId -> username
+const activeUsernames = new Set(); // Currently active usernames
+const disconnectionTimeouts = new Map(); // deviceId -> { timeout, username, timestamp }
+const messageHistory = []; // { msg, timestamp }[]
+const rateLimits = new Map(); // username -> { count, lastReset, mutedUntil }
+const bannedDevices = new Map(); // deviceId -> { expiresAt, username }
 
 const MAX_HISTORY = 100;
 const SERVER_START_TIME = Date.now();
@@ -1073,6 +1073,7 @@ app.get("/api/admin/verify", verifyAdminToken, (req, res) => {
 app.get("/api/admin/stats", verifyAdminToken, (req, res) => {
   cleanExpiredBans(); // Clean up expired bans before reporting
 
+  // Collect online users
   const users = [];
   for (const [ws, data] of clients.entries()) {
     if (data.authenticated) {
@@ -1080,8 +1081,24 @@ app.get("/api/admin/stats", verifyAdminToken, (req, res) => {
         username: data.username,
         deviceId: data.deviceId,
         terminalMode: data.terminalMode,
+        status: "online",
       });
     }
+  }
+
+  // Add users in grace period (disconnectionTimeouts)
+  for (const [deviceId, info] of disconnectionTimeouts.entries()) {
+    users.push({
+      username: info.username,
+      deviceId: deviceId,
+      terminalMode: null,
+      status: "grace",
+      graceStarted: info.timestamp,
+      graceSeconds: Math.ceil((Date.now() - info.timestamp) / 1000),
+      graceRemaining: Math.ceil(
+        RECONNECT_GRACE_PERIOD / 1000 - (Date.now() - info.timestamp) / 1000
+      ),
+    });
   }
 
   const bannedUsers = [];

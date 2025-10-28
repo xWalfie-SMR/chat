@@ -168,14 +168,32 @@ async function fetchStats() {
         userItem.className = "user-item";
         const userInfo = document.createElement("div");
         userInfo.className = "user-info";
+        let statusLabel = "";
+        let statusClass = "";
+        if (user.status === "grace") {
+          statusLabel = `In Grace Period${
+            typeof user.graceRemaining === "number" && user.graceRemaining >= 0
+              ? ` (${user.graceRemaining}s left)`
+              : ""
+          }`;
+          statusClass = "status-grace";
+        } else {
+          statusLabel = user.terminalMode ? "Terminal" : "Web";
+          statusClass = "";
+        }
         userInfo.innerHTML = `
           <span class="username">${escapeHtml(user.username)}</span>
           <span class="device-id">${escapeHtml(user.deviceId)}</span>
-          <span class="status">${user.terminalMode ? "Terminal" : "Web"}</span>
+          <span class="status ${statusClass}">${statusLabel}</span>
         `;
         const kickBtn = document.createElement("button");
         kickBtn.innerHTML = '<i class="fas fa-user-times"></i> Kick';
-        kickBtn.onclick = () => openKickModal(user.username);
+        if (user.status === "grace") {
+          kickBtn.disabled = true;
+          kickBtn.title = "Cannot kick user in grace period";
+        } else {
+          kickBtn.onclick = () => openKickModal(user.username);
+        }
         userItem.appendChild(userInfo);
         userItem.appendChild(kickBtn);
         userList.appendChild(userItem);
